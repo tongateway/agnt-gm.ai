@@ -2,11 +2,11 @@
 // Flow: prompt → clarify (owner↔AI chat on a draft project) → review/create
 //       bot → cloud build. Agent setup remains available from the bot overview
 //       as an advanced path, but the default creator path ships with zero setup.
-import { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import { tgTheme, Theme } from './theme';
 import {
   telegramColorScheme, onThemeChanged, syncChrome, telegramInitData, telegramUser,
-  insideTelegram, backButtonOnClick, backButtonVisible,
+  insideTelegram, backButtonOnClick, backButtonVisible, haptic,
 } from './telegram';
 import {
   ApiError, Project,
@@ -21,7 +21,7 @@ import {
 import { useChat } from './chat/Chat';
 import { pendingEnvAsk, EnvAsk } from './chat/env';
 import { useT } from './i18n';
-import { TGHeader, MainButton, TabBar, Tab, Spinner } from './ui';
+import { TGHeader, MainButton, TabBar, Tab, Spinner, ConfirmSheet } from './ui';
 import { PromptScreen } from './screens/Prompt';
 import { ClarifyScreen, GenPhase } from './screens/Clarify';
 import { AgentScreen } from './screens/Agent';
@@ -72,6 +72,15 @@ const PAUSED_KEY = 'agentbot-paused'; // optimistic pause state per bot (until t
 function loadPaused(): Set<string> {
   try { return new Set(JSON.parse(localStorage.getItem(PAUSED_KEY) || '[]') as string[]); }
   catch { return new Set(); }
+}
+
+// Pinned bots — the owner's own ordering, kept client-side (there is no server
+// field for it). Stored oldest-pin-first; the list renders pinned bots on top
+// in the order they were pinned, newest pin highest.
+const PINNED_KEY = 'agentbot-pinned';
+function loadPinned(): string[] {
+  try { const v = JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); return Array.isArray(v) ? v as string[] : []; }
+  catch { return []; }
 }
 
 const DISCOVER_OPTOUT_KEY = 'agentbot-discover-optout'; // bots the owner hid from Discovery (until the API carries `discoverable`)
@@ -208,6 +217,10 @@ export default function App() {
   const [hiddenBots, setHiddenBots] = useState<Set<string>>(loadHidden);
   const [pausedBots, setPausedBots] = useState<Set<string>>(loadPaused);
   const [discoverOptOut, setDiscoverOptOut] = useState<Set<string>>(loadDiscoverOptOut);
+  const [pinnedBots, setPinnedBots] = useState<string[]>(loadPinned);
+  // A swipe armed a pin/delete and is waiting on the confirm sheet. null = shut.
+  const [swipeConfirm, setSwipeConfirm] = useState<{ kind: 'delete' | 'pin'; bot: MyBot } | null>(null);
+  const lastSwipeConfirm = useRef(swipeConfirm); // keeps the copy stable while the sheet slides out
   const [draft, setDraft] = useState('');
 
   // Discover tab — server-side feed of live bots (everyone's). Empty until the
@@ -604,9 +617,49 @@ export default function App() {
       localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
       return next;
     });
+    unpinBot(botId); // a deleted bot leaves no ghost in the pin order
     setMyBots(bs => bs.filter(b => b.id !== botId));
     setManageBot(null); setDir(-1);
   };
+
+  // ── pin / unpin (client-side ordering) ──
+  const persistPins = (ids: string[]) => {
+    setPinnedBots(ids);
+    localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
+  };
+  const pinBot = (botId: string) => {
+    haptic('success');
+    persistPins([...pinnedBots.filter(id => id !== botId), botId]); // newest pin last → rendered highest
+  };
+  const unpinBot = (botId: string) => {
+    if (!pinnedBots.includes(botId)) return;
+    persistPins(pinnedBots.filter(id => id !== botId));
+  };
+  const pinnedSet = useMemo(() => new Set(pinnedBots), [pinnedBots]);
+  // Swipe-left routes here: unpinning is the harmless reverse of the gesture, so
+  // it fires immediately; pinning reorders the list, so it asks first.
+  const onSwipePin = (botId: string) => {
+    if (pinnedSet.has(botId)) { haptic('light'); unpinBot(botId); return; }
+    const bot = myBots.find(b => b.id === botId);
+    if (bot) setSwipeConfirm({ kind: 'pin', bot });
+  };
+  const onSwipeDelete = (botId: string) => {
+    const bot = myBots.find(b => b.id === botId);
+    if (bot) setSwipeConfirm({ kind: 'delete', bot });
+  };
+  const confirmSwipe = () => {
+    if (!swipeConfirm) return;
+    const { kind, bot } = swipeConfirm;
+    setSwipeConfirm(null);
+    if (kind === 'delete') void deleteBot(bot.id);
+    else pinBot(bot.id);
+  };
+  // Pinned bots float to the top, newest pin highest; the rest keep list order.
+  // A stable sort preserves the server ordering within each group.
+  const sortedBots = useMemo(() => {
+    const rank = (id: string) => { const i = pinnedBots.indexOf(id); return i < 0 ? -1 : pinnedBots.length - i; };
+    return [...myBots].sort((a, b) => rank(b.id) - rank(a.id));
+  }, [myBots, pinnedBots]);
 
   const sendUpdate = () => {
     const text = draft.trim();
@@ -789,13 +842,14 @@ export default function App() {
             discoverable={!discoverOptOut.has(activeBot.id)}
             onToggleDiscoverable={() => toggleDiscoverable(activeBot.id)}
             onDelete={() => void deleteBot(activeBot.id)} />)
-      : <MyBotsList T={T} bots={myBots} loading={botsLoading} authed={tgAuthed}
+      : <MyBotsList T={T} bots={sortedBots} loading={botsLoading} authed={tgAuthed} pinned={pinnedSet}
           onOpen={(bid) => {
             const b = myBots.find(x => x.id === bid);
             if (b?.inProgress) void resumeBuild(bid); // back to the step it was closed on
             else { setManageBot(bid); setManageView('overview'); setDir(1); }
           }}
-          onBuildFirst={() => { setDir(1); setTab('build'); }} />)
+          onBuildFirst={() => { setDir(1); setTab('build'); }}
+          onDelete={onSwipeDelete} onPin={onSwipePin} />)
     : tab === 'discover'
       ? <DiscoveryPage T={T} bots={discoverBots} loading={discoverLoading} />
     : screen;
@@ -890,6 +944,35 @@ export default function App() {
             onClose={() => setDetailTask(null)} />
         </Suspense>
       )}
+
+      {/* swipe confirm — always mounted so the sheet slide-in/out is a real
+          transition. `swipeConfirm` clears the instant it's dismissed, but the
+          sheet is still animating OUT then, so the copy is read from the last
+          non-null value (held in a ref) — otherwise the name flashes to
+          "undefined" as it slides away. */}
+      {(() => {
+        if (swipeConfirm) lastSwipeConfirm.current = swipeConfirm;
+        const c = swipeConfirm ?? lastSwipeConfirm.current;
+        const del = c?.kind === 'delete';
+        return (
+          <ConfirmSheet
+            T={T} open={!!swipeConfirm}
+            destructive={del}
+            icon={del ? 'trash' : 'pin'}
+            title={del
+              ? t('Delete this bot?', 'Удалить этого бота?')
+              : t('Pin to the top?', 'Закрепить наверху?')}
+            body={del
+              ? t(`Removes ${c?.bot.name ?? ''} from your list. The Telegram bot itself keeps running.`,
+                  `Удаляет ${c?.bot.name ?? ''} из вашего списка. Сам Telegram-бот продолжит работать.`)
+              : t(`${c?.bot.name ?? ''} will stay at the top of your bots.`,
+                  `${c?.bot.name ?? ''} будет всегда наверху списка ботов.`)}
+            confirmLabel={del ? t('Delete', 'Удалить') : t('Pin', 'Закрепить')}
+            cancelLabel={t('Cancel', 'Отмена')}
+            onConfirm={confirmSwipe}
+            onCancel={() => setSwipeConfirm(null)} />
+        );
+      })()}
     </div>
   );
 }

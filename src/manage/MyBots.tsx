@@ -5,7 +5,7 @@ import { Theme, btnReset, toneFor } from '../theme';
 import { Project, ChatMessage } from '../api/client';
 import { ChatThread } from '../chat/Chat';
 import { useT, useLang, tr, Lang } from '../i18n';
-import { TGIcon, Mark, Bubble, Spinner, BotTile, Pill, Dot } from '../ui';
+import { TGIcon, Mark, Bubble, Spinner, BotTile, Pill, Dot, SwipeRow, SwipeAction, DANGER } from '../ui';
 
 export interface MyBot {
   id: string;
@@ -96,9 +96,11 @@ function botsSummary(lang: Lang, bots: MyBot[]): string {
 }
 
 // ── inbox list ────────────────────────────────────────────────
-export function MyBotsList({ T, bots, loading, authed, onOpen, onBuildFirst }: {
+export function MyBotsList({ T, bots, loading, authed, pinned, onOpen, onBuildFirst, onDelete, onPin }: {
   T: Theme; bots: MyBot[]; loading: boolean; authed: boolean;
+  pinned: Set<string>;
   onOpen: (id: string) => void; onBuildFirst: () => void;
+  onDelete: (id: string) => void; onPin: (id: string) => void;
 }) {
   const t = useT();
   const { lang } = useLang();
@@ -143,28 +145,49 @@ export function MyBotsList({ T, bots, loading, authed, onOpen, onBuildFirst }: {
           // whole_bot carries status='live' but inProgress=true, and must show its
           // build state (gold "Building…"), not a green "Live".
           const liveB = !bot.inProgress;
+          const isPinned = pinned.has(bot.id);
+          // Swipe RIGHT (panel at the left edge) → delete. Swipe LEFT → pin, or
+          // unpin when it's already pinned (the same gesture, reversed).
+          const del: SwipeAction = { icon: 'trash', label: t('Delete', 'Удалить'), bg: DANGER, fg: '#fff' };
+          const pin: SwipeAction = isPinned
+            ? { icon: 'pinOff', label: t('Unpin', 'Открепить'), bg: T.sub, fg: '#fff' }
+            : { icon: 'pin', label: t('Pin', 'Закрепить'), bg: T.green, fg: '#fff' };
           return (
-            <button key={bot.id} onClick={() => onOpen(bot.id)} style={{
-              ...btnReset, textAlign: 'left', width: '100%', display: 'flex', alignItems: 'center', gap: 13,
-              padding: 15, borderRadius: T.cardRadius, background: T.cardBg,
-              border: `1px solid ${T.sep}`, boxShadow: T.shadow,
-            }}>
-              <BotTile T={T} name={bot.name} tone={bot.tone} src={bot.avatarUrl} size={48} radius={15} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontFamily: T.font, fontSize: 16, fontWeight: 700, color: T.text, letterSpacing: -0.2,
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>{bot.name}</div>
-                <div style={{ fontFamily: T.mono, fontSize: 12.5, color: T.hint, marginTop: 2 }}>@{bot.handle}</div>
+            <SwipeRow key={bot.id} T={T} left={del} right={pin}
+              onTriggerLeft={() => onDelete(bot.id)}
+              onTriggerRight={() => onPin(bot.id)}
+              onTap={() => onOpen(bot.id)}>
+              <div style={{
+                textAlign: 'left', width: '100%', display: 'flex', alignItems: 'center', gap: 13,
+                padding: 15, borderRadius: T.cardRadius, background: T.cardBg,
+                border: `1px solid ${T.sep}`, boxSizing: 'border-box',
+              }}>
+                <BotTile T={T} name={bot.name} tone={bot.tone} src={bot.avatarUrl} size={48} radius={15} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    fontFamily: T.font, fontSize: 16, fontWeight: 700, color: T.text, letterSpacing: -0.2,
+                    whiteSpace: 'nowrap', overflow: 'hidden',
+                  }}>
+                    {isPinned && <TGIcon name="pin" size={13} color={T.hint} stroke={2} />}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot.name}</span>
+                  </div>
+                  <div style={{ fontFamily: T.mono, fontSize: 12.5, color: T.hint, marginTop: 2 }}>@{bot.handle}</div>
+                </div>
+                <Pill T={T} tone={liveB ? 'green' : 'gold'} style={{ flexShrink: 0 }}>
+                  <Dot color={liveB ? '#2f8f6f' : T.gold} size={6} pulse={!liveB} />
+                  {liveB ? t('Live', 'Работает') : statusLabel(lang, bot.status)}
+                </Pill>
               </div>
-              <Pill T={T} tone={liveB ? 'green' : 'gold'} style={{ flexShrink: 0 }}>
-                <Dot color={liveB ? '#2f8f6f' : T.gold} size={6} pulse={!liveB} />
-                {liveB ? t('Live', 'Работает') : statusLabel(lang, bot.status)}
-              </Pill>
-            </button>
+            </SwipeRow>
           );
         })}
       </div>
+      {bots.length > 0 && (
+        <div style={{ textAlign: 'center', marginTop: 12, fontFamily: T.font, fontSize: 11.5, color: T.hint }}>
+          {t('Swipe a bot left to pin · right to delete', 'Свайп влево — закрепить · вправо — удалить')}
+        </div>
+      )}
     </div>
   );
 }

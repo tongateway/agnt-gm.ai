@@ -20,6 +20,12 @@ interface TelegramWebApp {
   platform?: string;
   version?: string;
   isVersionAtLeast?(version: string): boolean;
+  // Native haptics (Bot API 6.1+). Absent on old clients / plain browsers.
+  HapticFeedback?: {
+    impactOccurred(style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'): void;
+    notificationOccurred(type: 'error' | 'success' | 'warning'): void;
+    selectionChanged(): void;
+  };
   // ── fullscreen mode (Bot API 8.0+) ──
   isFullscreen?: boolean;
   requestFullscreen?(): void;
@@ -161,6 +167,31 @@ export function openInvoice(invoiceLink: string): Promise<InvoiceStatus> {
     }
     webApp.openInvoice(invoiceLink, (status) => resolve(status));
   });
+}
+
+// Native haptic feedback — the physical tick that makes a swipe feel real.
+// A single seam over the two HapticFeedback methods, keyed by intent so callers
+// say what happened, not which API to poke. No-op outside Telegram or on a
+// client too old to have it (guarded so a throw can never break a gesture).
+export function haptic(
+  kind: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft' | 'success' | 'warning' | 'error' | 'select',
+): void {
+  const h = insideTelegram ? webApp?.HapticFeedback : undefined;
+  if (!h) return;
+  try {
+    switch (kind) {
+      case 'success':
+      case 'warning':
+      case 'error':
+        h.notificationOccurred(kind);
+        break;
+      case 'select':
+        h.selectionChanged();
+        break;
+      default:
+        h.impactOccurred(kind);
+    }
+  } catch { /* older client / unsupported — the gesture still works, just silent */ }
 }
 
 // t.me links stay inside Telegram (bot chats, the manager-bot deep link,
