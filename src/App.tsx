@@ -915,6 +915,10 @@ export default function App() {
         }}
         style={{
           flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', position: 'relative',
+          // Keep the rubber-band inside this scroller: without it, hitting the
+          // top or bottom hands the leftover scroll to the page — which inside
+          // Telegram is the sheet itself, and it drifts.
+          overscrollBehavior: 'contain',
           ['--scr-dx' as string]: dir > 0 ? '22px' : '-22px', animation: 'scrIn .32s cubic-bezier(.2,.8,.2,1)',
         }}>
         <Suspense fallback={

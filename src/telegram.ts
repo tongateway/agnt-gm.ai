@@ -20,6 +20,12 @@ interface TelegramWebApp {
   platform?: string;
   version?: string;
   isVersionAtLeast?(version: string): boolean;
+  // ── vertical swipe control (Bot API 7.7+) ──
+  // The drag-down-to-minimise/close gesture. Absent on older clients.
+  isVerticalSwipesEnabled?: boolean;
+  disableVerticalSwipes?(): void;
+  enableVerticalSwipes?(): void;
+  isExpanded?: boolean;
   // Native haptics (Bot API 6.1+). Absent on old clients / plain browsers.
   HapticFeedback?: {
     impactOccurred(style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'): void;
@@ -81,10 +87,34 @@ function syncFullscreenInset(): void {
   document.documentElement.style.setProperty('--tg-fs-top', `${top}px`);
 }
 
+// Stop the sheet from following the finger. Telegram's default is that a
+// vertical drag anywhere in the Mini App minimises or closes it — which fights
+// every gesture of our own: the bot rows swipe sideways, and a drag that starts
+// even slightly off-axis grabs the whole app instead of the row, so the sheet
+// slides half-way down the screen mid-swipe.
+//
+// disableVerticalSwipes() is the documented remedy (Bot API 7.7+). The docs ask
+// that it only be used when the app has competing gestures — it does — and
+// closing stays available the whole time through the header's Close button and
+// the chevron, so nobody gets trapped inside.
+//
+// Older clients have no such method. There the fallback is to undo the drag:
+// viewportChanged fires as the sheet is pulled, and re-expanding snaps it back
+// instead of leaving it parked half-open.
+function lockVerticalSwipes(): void {
+  if (!insideTelegram || !webApp) return;
+  if (webApp.isVersionAtLeast?.('7.7') && typeof webApp.disableVerticalSwipes === 'function') {
+    try { webApp.disableVerticalSwipes(); return; } catch { /* fall through to the re-expand guard */ }
+  }
+  const reExpand = () => { if (webApp && webApp.isExpanded === false) webApp.expand(); };
+  webApp.onEvent('viewportChanged', reExpand);
+}
+
 export function initTelegram(): void {
   if (!insideTelegram || !webApp) return;
   webApp.ready();
   webApp.expand();
+  lockVerticalSwipes();
   if (!fullscreenCapable()) return;
   try { webApp.requestFullscreen!(); } catch { /* older client raced the gate — ignore */ }
   // insets land asynchronously (after fullscreenChanged) and can shift on
