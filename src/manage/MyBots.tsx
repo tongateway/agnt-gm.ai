@@ -146,16 +146,17 @@ export function MyBotsList({ T, bots, loading, authed, pinned, onOpen, onBuildFi
           // build state (gold "Building…"), not a green "Live".
           const liveB = !bot.inProgress;
           const isPinned = pinned.has(bot.id);
-          // Swipe RIGHT (panel at the left edge) → delete. Swipe LEFT → pin, or
-          // unpin when it's already pinned (the same gesture, reversed).
+          // Swipe LEFT → delete (the panel rides in from the right edge), the way
+          // every iOS/Telegram list does it. Swipe RIGHT → pin, or unpin when
+          // it's already pinned (the same gesture, reversed).
           const del: SwipeAction = { icon: 'trash', label: t('Delete', 'Удалить'), bg: DANGER, fg: '#fff' };
           const pin: SwipeAction = isPinned
             ? { icon: 'pinOff', label: t('Unpin', 'Открепить'), bg: T.sub, fg: '#fff' }
             : { icon: 'pin', label: t('Pin', 'Закрепить'), bg: T.green, fg: '#fff' };
           return (
-            <SwipeRow key={bot.id} T={T} left={del} right={pin}
-              onTriggerLeft={() => onDelete(bot.id)}
-              onTriggerRight={() => onPin(bot.id)}
+            <SwipeRow key={bot.id} T={T} left={pin} right={del}
+              onTriggerLeft={() => onPin(bot.id)}
+              onTriggerRight={() => onDelete(bot.id)}
               onTap={() => onOpen(bot.id)}>
               <div style={{
                 textAlign: 'left', width: '100%', display: 'flex', alignItems: 'center', gap: 13,
@@ -185,7 +186,7 @@ export function MyBotsList({ T, bots, loading, authed, pinned, onOpen, onBuildFi
       </div>
       {bots.length > 0 && (
         <div style={{ textAlign: 'center', marginTop: 12, fontFamily: T.font, fontSize: 11.5, color: T.hint }}>
-          {t('Swipe a bot left to pin · right to delete', 'Свайп влево — закрепить · вправо — удалить')}
+          {t('Swipe a bot left to delete · right to pin', 'Свайп влево — удалить · вправо — закрепить')}
         </div>
       )}
     </div>
