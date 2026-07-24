@@ -2,6 +2,7 @@
 // theme.jsx / discover.jsx. Visuals must match the prototype.
 import React from 'react';
 import { Theme, hexA, tile, btnReset, EVENT_PALETTES, EventPalette } from './theme';
+import { haptic } from './telegram';
 import { useT } from './i18n';
 
 // ── Icons (simple geometric strokes only) ─────────────────────
@@ -32,6 +33,9 @@ export function TGIcon({ name, size = 22, color = 'currentColor', stroke = 2 }: 
     user: <g {...p}><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0113 0" /></g>,
     shield: <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" {...p} />,
     lock: <g {...p}><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.5" /><path d="M8 10.5V8a4 4 0 018 0v2.5" /></g>,
+    trash: <g {...p}><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12" /><path d="M10 11v6M14 11v6" /></g>,
+    pin: <g {...p}><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5z" /><path d="M12 14v6" /></g>,
+    pinOff: <g {...p}><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5z" /><path d="M12 14v6" /><path d="M4 4l16 16" /></g>,
     clock: <g {...p}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></g>,
     compass: <g {...p}><circle cx="12" cy="12" r="8.5" /><path d="M15.5 8.5l-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2z" /></g>,
     search: <g {...p}><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4" /></g>,
@@ -509,3 +513,209 @@ export function QuickReplies({ T, options, onPick, multi = false }: {
 
 // (StatusChip / Toast / Toggle / Segmented removed — superseded by the health
 // pill, chat-driven flows and the local Switch; nothing imports them anymore.)
+
+// ── Swipeable row ─────────────────────────────────────────────
+// A list row you can drag sideways to reveal one action per direction, iOS/
+// Telegram-style: as the card slides, the action behind it fades and grows in,
+// arms with a haptic tick when you cross the threshold, and fires on release
+// (springing the card back — the confirm lives with the caller). A short,
+// low-movement press is a plain tap. Vertical drags fall through to the
+// scroller untouched, so the list still scrolls normally.
+export interface SwipeAction {
+  icon: string;
+  label: string;
+  bg: string;   // panel background
+  fg: string;   // icon + label colour on that panel
+}
+
+// The delete red. The theme deliberately maps its `red` to terracotta (same hue
+// as the accent), which is right for "needs fix" chips but wrong for a genuinely
+// destructive swipe — it must NOT look like the primary action. So the delete
+// flow (swipe panel + confirm sheet) uses this dedicated, unmistakable red.
+export const DANGER = '#D9463B';
+export const DANGER_SOFT = '#F6DBD4';
+
+export function SwipeRow({
+  T, left, right, onTriggerLeft, onTriggerRight, onTap, radius, children,
+}: {
+  T: Theme;
+  left?: SwipeAction;   // revealed by dragging the card RIGHT (panel sits at the left edge)
+  right?: SwipeAction;  // revealed by dragging the card LEFT (panel sits at the right edge)
+  onTriggerLeft?: () => void;
+  onTriggerRight?: () => void;
+  onTap?: () => void;
+  radius?: number;
+  children: React.ReactNode;
+}) {
+  const ARM = 78;          // travel (px) at which an action arms + fires on release
+  const REVEAL = 26;       // travel over which the panel fades fully in
+  const RESIST = 0.35;     // rubber-band factor past ARM
+  const cardRadius = radius ?? T.cardRadius;
+
+  const [dx, setDx] = React.useState(0);
+  const [spring, setSpring] = React.useState(false); // CSS transition on during the release snap
+  // `dx` in the ref is the SOURCE OF TRUTH for the gesture; the state copy only
+  // drives rendering. React batches, so on a fast flick the final pointermove
+  // and the pointerup land in one batch and the state is still a frame behind —
+  // deciding the direction from it fires the OPPOSITE action (a swipe meant to
+  // pin deleting instead). The ref is always current.
+  const st = React.useRef({ x0: 0, y0: 0, dx: 0, active: false, axis: '' as '' | 'x' | 'y', armed: false, moved: 0 });
+
+  const clamp = (raw: number) => {
+    // No panel that way? refuse to open (small rubber tug only).
+    if (raw > 0 && !left) return raw * 0.18;
+    if (raw < 0 && !right) return raw * 0.18;
+    const s = Math.sign(raw), m = Math.abs(raw);
+    return s * (m <= ARM ? m : ARM + (m - ARM) * RESIST);
+  };
+
+  const onDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    st.current = { x0: e.clientX, y0: e.clientY, dx: 0, active: true, axis: '', armed: false, moved: 0 };
+    setSpring(false);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    const s = st.current;
+    if (!s.active) return;
+    const ddx = e.clientX - s.x0, ddy = e.clientY - s.y0;
+    s.moved = Math.max(s.moved, Math.abs(ddx) + Math.abs(ddy));
+    // Decide the gesture axis once, from the first decisive movement. A vertical
+    // decision releases the pointer so the list scrolls as if we never touched it.
+    if (!s.axis) {
+      if (Math.abs(ddy) > 8 && Math.abs(ddy) > Math.abs(ddx)) { s.axis = 'y'; s.active = false; return; }
+      if (Math.abs(ddx) > 8) { s.axis = 'x'; try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* older webview */ } }
+    }
+    if (s.axis !== 'x') return;
+    e.preventDefault();
+    const next = clamp(ddx);
+    const nowArmed = Math.abs(next) >= ARM && ((next > 0 && !!left) || (next < 0 && !!right));
+    if (nowArmed !== s.armed) { s.armed = nowArmed; haptic(nowArmed ? 'rigid' : 'light'); }
+    s.dx = next;
+    setDx(next);
+  };
+  const end = () => {
+    const s = st.current;
+    if (!s.active && s.axis !== 'x') { // a pure tap (axis never became 'x') or a vertical bail
+      if (s.axis === '' && s.moved < 10 && onTap) onTap();
+      s.active = false;
+      return;
+    }
+    s.active = false;
+    setSpring(true);
+    if (s.armed) {
+      haptic('medium');
+      const fire = s.dx > 0 ? onTriggerLeft : onTriggerRight;
+      // Let the row spring back first, then hand off to the confirm.
+      s.dx = 0;
+      setDx(0);
+      window.setTimeout(() => fire?.(), 120);
+    } else if (s.axis === 'x') {
+      s.dx = 0;
+      setDx(0);
+    } else if (s.moved < 10 && onTap) {
+      onTap();
+    }
+    s.armed = false;
+  };
+
+  // Which panel is showing, and how "in" it is (0→1 over REVEAL, easing toward arm).
+  const prog = Math.min(1, Math.abs(dx) / ARM);
+  const fade = Math.min(1, Math.abs(dx) / REVEAL);
+  const armed = Math.abs(dx) >= ARM;
+  const iconScale = 0.72 + 0.28 * prog + (armed ? 0.12 : 0);
+  const panel = (a: SwipeAction, side: 'left' | 'right', show: boolean) => (
+    <div aria-hidden style={{
+      position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+      justifyContent: side === 'left' ? 'flex-start' : 'flex-end', padding: '0 26px',
+      background: a.bg, opacity: show ? 1 : 0,
+    }}>
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+        opacity: show ? fade : 0, transform: `scale(${show ? iconScale : 0.72})`,
+        transition: st.current.active ? 'none' : 'opacity .18s ease, transform .18s ease',
+      }}>
+        <TGIcon name={a.icon} size={23} color={a.fg} stroke={2.1} />
+        <span style={{ fontFamily: T.font, fontSize: 11.5, fontWeight: 700, color: a.fg, letterSpacing: 0.1 }}>{a.label}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'relative', borderRadius: cardRadius, overflow: 'hidden', boxShadow: T.shadow }}>
+      {left && panel(left, 'left', dx > 0)}
+      {right && panel(right, 'right', dx < 0)}
+      <div
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={end}
+        onPointerCancel={end}
+        style={{
+          position: 'relative', touchAction: 'pan-y',
+          transform: `translateX(${dx}px)`,
+          transition: spring ? 'transform .3s cubic-bezier(.22,.61,.36,1)' : 'none',
+          willChange: 'transform',
+        }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Confirm bottom-sheet ──────────────────────────────────────
+// A slide-up confirmation used by the swipe actions. Backdrop tap = cancel.
+// `open` is always mounted so the enter/exit are real CSS transitions; when
+// shut it sits invisible and non-interactive.
+export function ConfirmSheet({
+  T, open, icon, title, body, confirmLabel, cancelLabel, destructive, onConfirm, onCancel,
+}: {
+  T: Theme; open: boolean; icon: string; title: string; body?: string;
+  confirmLabel: string; cancelLabel: string; destructive?: boolean;
+  onConfirm: () => void; onCancel: () => void;
+}) {
+  const accent = destructive ? DANGER : T.accent;
+  const accentSoft = destructive ? DANGER_SOFT : T.accentSoft;
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        background: hexA('#1a2a1e', open ? 0.42 : 0), backdropFilter: open ? 'blur(2px)' : 'none',
+        transition: 'background .22s ease', pointerEvents: open ? 'auto' : 'none',
+      }}>
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 460, background: T.cardBg,
+          borderTopLeftRadius: 22, borderTopRightRadius: 22,
+          padding: '18px 18px calc(18px + env(safe-area-inset-bottom))',
+          boxShadow: '0 -12px 40px -12px rgba(26,42,30,0.35)',
+          transform: open ? 'translateY(0)' : 'translateY(105%)',
+          transition: 'transform .3s cubic-bezier(.22,.61,.36,1)',
+        }}>
+        <div style={{ width: 38, height: 4, borderRadius: 999, background: T.sep, margin: '0 auto 15px' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{
+            width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: accentSoft,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <TGIcon name={icon} size={21} color={accent} stroke={2} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: T.font, fontSize: 16.5, fontWeight: 700, color: T.text, letterSpacing: -0.2 }}>{title}</div>
+            {body && <div style={{ fontFamily: T.font, fontSize: 13, color: T.sub, lineHeight: '18px', marginTop: 2 }}>{body}</div>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button onClick={onCancel} style={{
+            ...btnReset, flex: 1, height: 46, borderRadius: 13, background: T.nestedBg,
+            color: T.text, fontFamily: T.font, fontSize: 14.5, fontWeight: 600,
+          }}>{cancelLabel}</button>
+          <button onClick={onConfirm} style={{
+            ...btnReset, flex: 1, height: 46, borderRadius: 13, background: accent,
+            color: '#fff', fontFamily: T.font, fontSize: 14.5, fontWeight: 700,
+          }}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
