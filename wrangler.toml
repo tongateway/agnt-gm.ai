@@ -6,10 +6,28 @@ compatibility_date = "2026-01-15"
 # auto-provisions edge certs and the proxy A records. Requires the agnt-gm.ai
 # zone to be on the same Cloudflare account that owns the Worker; if not, the
 # CLI deploy will fail and you'll need to add the routes from the dashboard.
+#
+# STILL ACTIVE ON PURPOSE. A Custom Domain captures the WHOLE hostname, so
+# while these two lines stand, this Worker answers for / and /app alike and the
+# promo site cannot take the apex. Deploying the /app support first — with the
+# host arrangement untouched — is what makes this change safe to ship on its
+# own: nothing about today's traffic changes.
 routes = [
   { pattern = "agnt-gm.ai", custom_domain = true },
   { pattern = "www.agnt-gm.ai", custom_domain = true },
 ]
+
+# ── CUTOVER: swap the block above for the one below ───────────────────────────
+# Order matters (docs/apex-migration.md in agntdev/agnt-promo):
+#   1. remove the two Custom Domains in the Cloudflare dashboard
+#   2. add proxied DNS records for the apex and www
+#   3. swap the comment here and `npx wrangler deploy`
+#   4. deploy agnt-promo with its routes uncommented
+# Doing 3 before 1 leaves the apex with no Worker at all.
+#
+# routes = [
+#   { pattern = "agnt-gm.ai/app*", zone_name = "agnt-gm.ai" },
+# ]
 
 # Worker + Static Assets: serves the built Vite SPA and proxies /api/* to
 # the upstream Builder API. Run `npm run build` first to populate ./dist,
