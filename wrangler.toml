@@ -12,10 +12,13 @@ compatibility_date = "2026-01-15"
 # promo site cannot take the apex. Deploying the /app support first — with the
 # host arrangement untouched — is what makes this change safe to ship on its
 # own: nothing about today's traffic changes.
-routes = [
-  { pattern = "agnt-gm.ai", custom_domain = true },
-  { pattern = "www.agnt-gm.ai", custom_domain = true },
-]
+# Custom Domains сняты в дашборде 26 июля — апекс освобождён под промо-сайт.
+# Оставлены здесь для отката: вернуть эти три строки и задеплоить, если нужно
+# отдать весь хост обратно мини-аппу.
+# routes = [
+#   { pattern = "agnt-gm.ai", custom_domain = true },
+#   { pattern = "www.agnt-gm.ai", custom_domain = true },
+# ]
 
 # ── CUTOVER: swap the block above for the one below ───────────────────────────
 # Order matters (docs/apex-migration.md in agntdev/agnt-promo):
@@ -25,9 +28,9 @@ routes = [
 #   4. deploy agnt-promo with its routes uncommented
 # Doing 3 before 1 leaves the apex with no Worker at all.
 #
-# routes = [
-#   { pattern = "agnt-gm.ai/app*", zone_name = "agnt-gm.ai" },
-# ]
+routes = [
+  { pattern = "agnt-gm.ai/app*", zone_name = "agnt-gm.ai" },
+]
 
 # Worker + Static Assets: serves the built Vite SPA and proxies /api/* to
 # the upstream Builder API. Run `npm run build` first to populate ./dist,
