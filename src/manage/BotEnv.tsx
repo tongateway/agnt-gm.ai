@@ -9,7 +9,7 @@
 // re-pastes when they need to change something. That is the whole security
 // model of the feature and the reason there is no state here holding a secret
 // beyond the input the owner is actively typing.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Theme } from '../theme';
 import {
   ApiError, BotEnvPanel, BotEnvRow, getBotEnv, setBotEnvValue, deleteBotEnvValue,
@@ -122,7 +122,7 @@ export function BotEnv({ T, projectId, botLiveHint }: {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 16px' }}>
         <Spinner color={T.hint} size={22} />
       </div>
     );
@@ -133,7 +133,10 @@ export function BotEnv({ T, projectId, botLiveHint }: {
   const live = panel?.bot_live ?? !!botLiveHint;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '4px 0 28px' }}>
+    // Боковые отступы задаёт каждый экран сам — скроллер в App их не даёт.
+    // 16px 16px 28px при gap 12 — ровно как у «События» и «Требует внимания»,
+    // двух других списочных экранов; обзор бота отличается только низом.
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '16px 16px 28px' }}>
 
       {/* What this screen is. Short, because the rows explain themselves. */}
       <Card T={T}>
@@ -232,19 +235,21 @@ export function BotEnv({ T, projectId, botLiveHint }: {
                     autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                     style={{
                       width: '100%', boxSizing: 'border-box',
-                      padding: '12px 44px 12px 13px', borderRadius: 13,
+                      padding: '12px 74px 12px 13px', borderRadius: 13,
                       border: `1px solid ${err ? DANGER : T.sep}`, background: T.inputBg,
                       color: T.text, font: `500 15px ${T.font}`, outline: 'none',
                     }} />
+                  {/* Текстом, а не иконкой: глаза в наборе нет, а лупа читается
+                      как поиск и сбивает с толку. */}
                   <button
                     type="button"
                     onClick={() => setReveal(v => !v)}
-                    aria-label={reveal ? t('Hide', 'Скрыть') : t('Show', 'Показать')}
                     style={{
-                      position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
-                      background: 'none', border: 0, padding: 8, cursor: 'pointer', color: T.hint,
+                      position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
+                      background: 'none', border: 0, padding: '8px 10px', cursor: 'pointer',
+                      color: T.hint, font: `600 13px ${T.font}`,
                     }}>
-                    <TGIcon name={reveal ? 'lock' : 'search'} size={17} />
+                    {reveal ? t('Hide', 'Скрыть') : t('Show', 'Показать')}
                   </button>
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
@@ -283,16 +288,16 @@ export function BotEnv({ T, projectId, botLiveHint }: {
 
 // EnvConfirm keeps the last non-null pending action while the sheet slides away,
 // so the key name doesn't blank out mid-animation (same trick the bot-row swipe
-// confirmation uses).
-let lastPending: Pending | null = null;
-
+// confirmation uses). The memory is a ref, not a module variable: at module
+// scope it would outlive the screen and could flash a key from a different bot.
 function EnvConfirm({ T, pending, live, onConfirm, onCancel }: {
   T: Theme; pending: Pending | null; live: boolean;
   onConfirm: () => void; onCancel: () => void;
 }) {
   const t = useT();
-  if (pending) lastPending = pending;
-  const p = pending ?? lastPending;
+  const last = useRef<Pending | null>(null);
+  if (pending) last.current = pending;
+  const p = pending ?? last.current;
   if (!p) return null;
 
   const del = p.kind === 'delete';
@@ -331,7 +336,7 @@ function EnvConfirm({ T, pending, live, onConfirm, onCancel }: {
 }
 
 function RowButton({ T, children, onClick, disabled, danger, primary }: {
-  T: Theme; children: React.ReactNode; onClick: () => void;
+  T: Theme; children: ReactNode; onClick: () => void;
   disabled?: boolean; danger?: boolean; primary?: boolean;
 }) {
   const color = danger ? DANGER : primary ? T.accentText : T.text;
