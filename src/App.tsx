@@ -33,6 +33,7 @@ import { DiscoveryPage, DiscoverBot, discoverBotFromProject } from './manage/Dis
 // the mini-app opens faster. The build flow (prompt→clarify→spec→agent) and the
 // My Bots / Discover lists stay eager: they're the first paint and export
 // helpers used in App's data layer.
+const BotEnv = lazy(() => import('./manage/BotEnv').then(m => ({ default: m.BotEnv })));
 const BotOverview = lazy(() => import('./manage/BotOverview').then(m => ({ default: m.BotOverview })));
 const DagBoard = lazy(() => import('./manage/DagBoard').then(m => ({ default: m.DagBoard })));
 const BoardView = lazy(() => import('./manage/TaskManagerBoard').then(m => ({ default: m.BoardView })));
@@ -212,7 +213,7 @@ export default function App() {
   const [myBots, setMyBots] = useState<MyBot[]>([]);
   const [botsLoading, setBotsLoading] = useState(false);
   const [manageBot, setManageBot] = useState<string | null>(null);
-  const [manageView, setManageView] = useState<'overview' | 'board' | 'taskboard' | 'inbox' | 'chat' | 'activity' | 'plan'>('overview');
+  const [manageView, setManageView] = useState<'overview' | 'board' | 'taskboard' | 'inbox' | 'chat' | 'activity' | 'plan' | 'env'>('overview');
   const [detailTask, setDetailTask] = useState<string | null>(null); // task_manager TaskDetail overlay (slug)
   const [hiddenBots, setHiddenBots] = useState<Set<string>>(loadHidden);
   const [pausedBots, setPausedBots] = useState<Set<string>>(loadPaused);
@@ -389,7 +390,7 @@ export default function App() {
       setTab('manage');
       if (parts[1]) {
         setManageBot(parts[1]);
-        setManageView(parts[2] === 'chat' ? 'chat' : parts[2] === 'activity' ? 'activity' : parts[2] === 'taskboard' ? 'taskboard' : parts[2] === 'inbox' ? 'inbox' : parts[2] === 'board' ? 'board' : parts[2] === 'plan' ? 'plan' : 'overview');
+        setManageView(parts[2] === 'chat' ? 'chat' : parts[2] === 'activity' ? 'activity' : parts[2] === 'taskboard' ? 'taskboard' : parts[2] === 'inbox' ? 'inbox' : parts[2] === 'board' ? 'board' : parts[2] === 'plan' ? 'plan' : parts[2] === 'env' ? 'env' : 'overview');
       }
       routeReady.current = true;
     } else if (parts[0] === 'discover') {
@@ -405,7 +406,7 @@ export default function App() {
 
   useEffect(() => {
     if (!routeReady.current) return;
-    const sub = manageView === 'chat' ? '/chat' : manageView === 'activity' ? '/activity' : manageView === 'taskboard' ? '/taskboard' : manageView === 'inbox' ? '/inbox' : manageView === 'board' ? '/board' : manageView === 'plan' ? '/plan' : '';
+    const sub = manageView === 'chat' ? '/chat' : manageView === 'activity' ? '/activity' : manageView === 'taskboard' ? '/taskboard' : manageView === 'inbox' ? '/inbox' : manageView === 'board' ? '/board' : manageView === 'plan' ? '/plan' : manageView === 'env' ? '/env' : '';
     const h = tab === 'manage'
       ? (manageBot ? `#/bots/${manageBot}${sub}` : '#/bots')
       : tab === 'discover' ? '#/discover'
@@ -802,7 +803,7 @@ export default function App() {
   const header = insideTelegram ? null : (tab === 'manage'
     ? (activeBot
       ? <TGHeader T={T}
-          title={manageView === 'activity' ? t('Activity', 'События') : manageView === 'plan' ? t('The plan', 'План') : manageView === 'board' || manageView === 'taskboard' ? t('Build board', 'Доска сборки') : manageView === 'inbox' ? t('Needs you', 'Требует внимания') : activeBot.name}
+          title={manageView === 'activity' ? t('Activity', 'События') : manageView === 'plan' ? t('The plan', 'План') : manageView === 'board' || manageView === 'taskboard' ? t('Build board', 'Доска сборки') : manageView === 'inbox' ? t('Needs you', 'Требует внимания') : manageView === 'env' ? t('Settings', 'Настройки') : activeBot.name}
           subtitle={manageView === 'overview' || manageView === 'chat' ? '@' + activeBot.handle + ' · ' + activeBot.version : '@' + activeBot.handle}
           onBack={closeChat} />
       : <TGHeader T={T} title={t('My Bots', 'Мои боты')} subtitle={t('Deployed on AgentBot', 'Развёрнуто на AgentBot')} />)
@@ -831,12 +832,15 @@ export default function App() {
             onOpenTask={(slug) => { setDir(1); setDetailTask(slug); }} />
         : manageView === 'plan'
         ? <BlueprintScreen T={T} projectId={activeBot.id} />
+        : manageView === 'env'
+        ? <BotEnv T={T} projectId={activeBot.id} botLiveHint={!pausedBots.has(activeBot.id)} />
         : <BotOverview T={T} bot={activeBot} messages={manageChat.messages}
             onOpenChat={() => { setDir(1); setManageView('chat'); }}
             onOpenBoard={() => { setDir(1); setManageView('taskboard'); }}
             onOpenInbox={() => { setDir(1); setManageView('inbox'); }}
             onOpenPlan={() => { setDir(1); setManageView('plan'); }}
             onViewActivity={() => { setDir(1); setManageView('activity'); }}
+            onOpenEnv={() => { setDir(1); setManageView('env'); }}
             paused={pausedBots.has(activeBot.id)}
             onTogglePause={() => togglePause(activeBot.id)}
             discoverable={!discoverOptOut.has(activeBot.id)}

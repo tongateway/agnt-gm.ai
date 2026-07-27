@@ -560,6 +560,62 @@ export function setBotPaused(idOrSlug: string, paused: boolean): Promise<unknown
   return request('PUT', `/builder/projects/${encodeURIComponent(idOrSlug)}/bot/pause`, { paused });
 }
 
+// ── Bot settings (env) ────────────────────────────────────────
+// The keys the bot needs from its owner: API keys, an admin chat id, a channel
+// name. The chat collects them once while the bot builds; this is the panel for
+// everything after.
+//
+// The API NEVER returns a stored value — not even masked. A row reports whether
+// it is set and nothing more, so there is no field here to render a value from
+// and no way for one to reach a screenshot or a log. Replacing a forgotten
+// value is one paste; that is the trade this makes on purpose.
+
+export type BotEnvStatus =
+  | 'set'      // the owner supplied it
+  | 'missing'  // required and empty — the bot needs this and doesn't have it
+  | 'skipped'; // owner said "later" during the chat stage
+
+export interface BotEnvRow {
+  key: string;
+  description?: string;
+  example?: string;
+  kind: 'secret' | 'admin_id' | 'plain';
+  required: boolean;
+  is_set: boolean;
+  status: BotEnvStatus;
+  filled_at?: string;
+  sort_order: number;
+}
+
+export interface BotEnvPanel {
+  env: BotEnvRow[];
+  summary: { total: number; set: number; missing: number; skipped: number };
+  // bot_live — a running bot is bound to the values it was deployed with, so a
+  // change here rebuilds it. Drives what the confirmation actually promises.
+  bot_live: boolean;
+}
+
+export async function getBotEnv(idOrSlug: string): Promise<BotEnvPanel | null> {
+  try {
+    return await request('GET', `/builder/projects/${encodeURIComponent(idOrSlug)}/bot/env`);
+  } catch (e) {
+    // 404 = this project never declared any env (older bots). Not an error.
+    if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return null;
+    throw e;
+  }
+}
+
+export function setBotEnvValue(idOrSlug: string, key: string, value: string): Promise<BotEnvPanel> {
+  return request('PUT',
+    `/builder/projects/${encodeURIComponent(idOrSlug)}/bot/env/${encodeURIComponent(key)}`,
+    { value });
+}
+
+export function deleteBotEnvValue(idOrSlug: string, key: string): Promise<BotEnvPanel> {
+  return request('DELETE',
+    `/builder/projects/${encodeURIComponent(idOrSlug)}/bot/env/${encodeURIComponent(key)}`);
+}
+
 // opt a bot in/out of the Discover feed — optimistic (real PUT when the API ships)
 export function setDiscoverable(idOrSlug: string, on: boolean): Promise<unknown> {
   return request('PUT', `/builder/projects/${encodeURIComponent(idOrSlug)}/discoverable`, { discoverable: on });

@@ -10,6 +10,7 @@ import {
   ApiError, Project, TaskItem, ChatMessage, Deployment, DagInfo, TaskDetail, BotAnalytics, ProjectBot, BotInitiate, BuildProgress as BuildProgressDTO,
   getProject, fetchProjectTasks, getProjectBot, listDeployments, getTaskDetail, getBotAnalytics,
   botIsLive, retryDeploy, setAutoMerge, initiateBot, postFeedback, publishProject, regenerateBotAvatar,
+  getBotEnv, type BotEnvPanel,
 } from '../api/client';
 import { openTgLink, openExternal } from '../telegram';
 import { TGIcon, Card, Pill, Dot, BotTile, Spinner, ProgressRing, Sparkline } from '../ui';
@@ -293,9 +294,9 @@ interface OvSnap {
 }
 const OV_CACHE = new Map<string, OvSnap>();
 
-export function BotOverview({ T, bot, messages, onOpenChat, onOpenBoard, onOpenInbox, onOpenPlan, onDelete, onViewActivity, paused, onTogglePause, discoverable, onToggleDiscoverable }: {
+export function BotOverview({ T, bot, messages, onOpenChat, onOpenBoard, onOpenInbox, onOpenPlan, onOpenEnv, onDelete, onViewActivity, paused, onTogglePause, discoverable, onToggleDiscoverable }: {
   T: Theme; bot: MyBot; messages: ChatMessage[];
-  onOpenChat: () => void; onOpenBoard: () => void; onOpenInbox?: () => void; onOpenPlan?: () => void; onDelete: () => void;
+  onOpenChat: () => void; onOpenBoard: () => void; onOpenInbox?: () => void; onOpenPlan?: () => void; onOpenEnv?: () => void; onDelete: () => void;
   onViewActivity: () => void;
   paused: boolean; onTogglePause: () => void;
   discoverable: boolean; onToggleDiscoverable: () => void;
@@ -327,6 +328,20 @@ export function BotOverview({ T, bot, messages, onOpenChat, onOpenBoard, onOpenI
   const [addBusy, setAddBusy] = useState(false);
   const [addErr, setAddErr] = useState<string | null>(null);
   const addTaskRef = useRef<HTMLTextAreaElement>(null);
+  // Env summary for the Settings row's badge. Fetched ONCE per open, not
+  // polled: it changes only when the owner edits it, and the overview already
+  // runs enough pollers.
+  const [envSummary, setEnvSummary] = useState<BotEnvPanel['summary'] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const p = await getBotEnv(bot.id);
+        if (alive) setEnvSummary(p?.summary ?? null);
+      } catch { /* the row just stays hidden — never block the overview on it */ }
+    })();
+    return () => { alive = false; };
+  }, [bot.id]);
 
   // grow the add-task input to fit the text (descriptions can be long), up to a
   // cap, then scroll within it
@@ -892,6 +907,34 @@ export function BotOverview({ T, bot, messages, onOpenChat, onOpenBoard, onOpenI
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: T.font, fontSize: 15, fontWeight: 700, color: T.text }}>{t('The plan', 'План')}</div>
             <div style={{ fontFamily: T.font, fontSize: 12.5, color: T.hint, marginTop: 1 }}>{t('what we understood from your idea', 'что мы поняли из вашей идеи')}</div>
+          </div>
+          <TGIcon name="chevRight" size={18} color={T.hint} stroke={2} />
+        </button>
+      )}
+
+      {/* Bot settings — the owner-supplied keys. The missing count is fetched
+          once (not polled): without it nothing tells the owner a key the bot
+          needs is absent, and a silently half-working bot is the failure this
+          screen exists to prevent. */}
+      {onOpenEnv && envSummary && envSummary.total > 0 && (
+        <button onClick={onOpenEnv} style={{
+          ...btnReset, width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 13,
+          padding: 14, borderRadius: 16, background: T.cardBg, border: `1px solid ${T.sep}`, boxShadow: T.shadow,
+        }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 11, background: envSummary.missing > 0 ? T.goldSoft : T.nestedBg,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <TGIcon name="lock" size={19} color={envSummary.missing > 0 ? T.gold : T.sub} stroke={2} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: T.font, fontSize: 15, fontWeight: 700, color: T.text }}>{t('Settings', 'Настройки')}</div>
+            <div style={{ fontFamily: T.font, fontSize: 12.5, color: envSummary.missing > 0 ? T.gold : T.hint, marginTop: 1 }}>
+              {envSummary.missing > 0
+                ? t(`${envSummary.missing} key${envSummary.missing > 1 ? 's' : ''} the bot still needs`,
+                    `не задано ключей: ${envSummary.missing}`)
+                : t('keys the bot uses', 'ключи, которые использует бот')}
+            </div>
           </div>
           <TGIcon name="chevRight" size={18} color={T.hint} stroke={2} />
         </button>
