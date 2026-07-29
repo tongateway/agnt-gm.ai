@@ -38,7 +38,12 @@ interface TelegramWebApp {
   exitFullscreen?(): void;
   safeAreaInset?: SafeAreaInset;        // device chrome (status bar / notch)
   contentSafeAreaInset?: SafeAreaInset; // Telegram's own controls over the content
-  initDataUnsafe?: { user?: { first_name?: string; last_name?: string; photo_url?: string; language_code?: string } };
+  initDataUnsafe?: {
+    user?: { first_name?: string; last_name?: string; photo_url?: string; language_code?: string };
+    // start_param — the `?startapp=…` value the link carried. Telegram allows
+    // [A-Za-z0-9_-]{1,64}; anything else never reaches us.
+    start_param?: string;
+  };
   BackButton?: {
     show(): void;
     hide(): void;
@@ -153,6 +158,26 @@ export function backButtonVisible(visible: boolean): void {
   const bb = insideTelegram ? webApp?.BackButton : undefined;
   if (!bb) return;
   if (visible) bb.show(); else bb.hide();
+}
+
+// applyStartParamRoute translates a `?startapp=open_<projectId>` deep link into
+// the hash route the app already restores from, and does it BEFORE React mounts.
+//
+// Going through the hash instead of a second routing branch is deliberate: the
+// restore logic in App.tsx is the single place that knows how a route is spelled,
+// and a parallel path would drift from it on the next screen we add.
+//
+// An explicit hash always wins — a link the user opened by hand is a more recent
+// intent than the start_param Telegram replays on every launch.
+export function applyStartParamRoute(): void {
+  if (!insideTelegram || window.location.hash) return;
+  const raw = webApp?.initDataUnsafe?.start_param;
+  if (!raw || !raw.startsWith('open_')) return;
+  const id = raw.slice('open_'.length);
+  // Guard the shape: this lands in a URL and then in an API path. Telegram's own
+  // alphabet is the outer bound; ours is narrower because project ids are uuids.
+  if (!/^[A-Za-z0-9-]{6,64}$/.test(id)) return;
+  window.location.hash = `#/bots/${id}`;
 }
 
 export function telegramInitData(): string | null {
