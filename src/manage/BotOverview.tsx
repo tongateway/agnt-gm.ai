@@ -175,6 +175,15 @@ function buildStatusLabel(bp: BuildProgressDTO, lang: Lang): string {
   }
 }
 
+// eta_seconds → a human "≈ 5 min" / "≈ 45s" instead of the raw "≈ 1560с". Under a
+// minute stays in seconds; a minute or more rounds to whole minutes (the ETA is
+// approximate — the backend interpolates it over the pass's build_started_at).
+function fmtEta(secs: number, lang: Lang): string {
+  if (secs < 60) return `≈ ${secs}${tr(lang, 's', 'с')}`;
+  const mins = Math.max(1, Math.round(secs / 60));
+  return `≈ ${mins} ${tr(lang, 'min', 'мин')}`;
+}
+
 // whole_bot build card (one-pass model): the ring + the backend's stage_label +
 // a compact per-step log. Usually a single pass → live.
 function WholeBotBuildCard({ T, bp }: { T: Theme; bp: BuildProgressDTO }) {
@@ -203,7 +212,7 @@ function WholeBotBuildCard({ T, bp }: { T: Theme; bp: BuildProgressDTO }) {
     : awaitingBot ? t('needs bot', 'нужен бот')
     : gaps ? t('with gaps', 'с пробелами')
     : live ? t('complete', 'готово')
-    : bp.eta_seconds > 0 ? `≈ ${bp.eta_seconds}${t('s', 'с')}`
+    : bp.eta_seconds > 0 ? fmtEta(bp.eta_seconds, lang)
     : t('building', 'сборка');
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
