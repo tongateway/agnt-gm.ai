@@ -144,26 +144,6 @@ export function Spinner({ color = '#fff', size = 17 }: { color?: string; size?: 
   );
 }
 
-// ── Stage stepper (slim, top of content) ──────────────────────
-export function Stepper({ T, steps, current }: { T: Theme; steps: number[]; current: number }) {
-  return (
-    <div style={{ display: 'flex', gap: 6, padding: '12px 16px 4px' }}>
-      {steps.map((_, i) => {
-        const done = i < current, active = i === current;
-        return (
-          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{
-              height: 3, borderRadius: 2,
-              background: done || active ? T.accent : T.sepStrong,
-              opacity: active ? 1 : (done ? 0.55 : 1), transition: 'background .3s',
-            }} />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── Card ──────────────────────────────────────────────────────
 export function Card({ T, children, style = {}, pad = 16 }: {
   T: Theme; children: React.ReactNode; style?: React.CSSProperties; pad?: number;
@@ -296,8 +276,8 @@ export function Sparkline({ values, color, width = 92, height = 34 }: {
   );
 }
 
-// ── bottom tab bar ────────────────────────────────────────────
-export type Tab = 'build' | 'discover' | 'manage';
+// ── bottom tab bar — Home · Discover ──────────────────────────
+export type Tab = 'home' | 'discover';
 
 export function TabBar({ T, tab, onTab }: { T: Theme; tab: Tab; onTab: (t: Tab) => void }) {
   const t = useT();
@@ -325,21 +305,12 @@ export function TabBar({ T, tab, onTab }: { T: Theme; tab: Tab; onTab: (t: Tab) 
       position: 'relative', zIndex: 20,
     }}>
       <div style={{
-        display: 'flex', alignItems: 'center', height: 66,
+        display: 'flex', alignItems: 'center', height: 62,
         background: hexA('#FBF8EF', 0.92), backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
         border: `1px solid ${T.sep}`, borderRadius: 22, boxShadow: T.tabShadow,
         padding: '0 8px', position: 'relative',
       }}>
-        {side('manage', 'folder', t('Bots', 'Боты'))}
-        {/* center — terracotta ＋ (new bot / onboarding), centered in the bar */}
-        <button onClick={() => onTab('build')} style={{
-          ...btnReset, width: 52, height: 52, flexShrink: 0,
-          borderRadius: 16, background: T.accent, color: T.accentText,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: T.ctaShadow,
-        }}>
-          <TGIcon name="plus" size={26} color={T.accentText} stroke={2.6} />
-        </button>
+        {side('home', 'bolt', t('Home', 'Главная'))}
         {side('discover', 'compass', t('Discover', 'Каталог'))}
       </div>
     </div>
@@ -384,31 +355,6 @@ export function Wordmark({ T, size = 30 }: { T: Theme; size?: number }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <Mark T={T} size={size} radius={Math.round(size * 0.3)} />
       <span style={{ fontFamily: T.font, fontWeight: 800, fontSize: size * 0.62, letterSpacing: -0.4, color: T.text }}>AGNTDEV</span>
-    </div>
-  );
-}
-
-// ── Bold 1c: circular build-progress ring ─────────────────────
-// 172px conic ring on a dark-green disc; large percent numeral.
-export function ProgressRing({ T, value, size = 172, label, color }: {
-  T: Theme; value: number; size?: number; label?: string; color?: string;
-}) {
-  const pct = Math.max(0, Math.min(100, Math.round(value)));
-  const arc = color || T.accent;
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%', margin: '0 auto', position: 'relative',
-      background: `conic-gradient(${arc} ${pct}%, ${hexA(T.text, 0.12)} 0)`,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      boxShadow: T.heroShadow,
-    }}>
-      <div style={{
-        position: 'absolute', inset: 13, borderRadius: '50%', background: T.text,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-      }}>
-        <span style={{ fontFamily: T.font, fontWeight: 700, fontSize: 32, letterSpacing: -1, color: T.accentText }}>{pct}%</span>
-        {label && <span style={{ fontFamily: T.font, fontSize: 12, fontWeight: 500, color: hexA(T.accentText, 0.7) }}>{label}</span>}
-      </div>
     </div>
   );
 }
@@ -661,22 +607,31 @@ export function SwipeRow({
   );
 }
 
-// ── Confirm bottom-sheet ──────────────────────────────────────
-// A slide-up confirmation used by the swipe actions. Backdrop tap = cancel.
-// `open` is always mounted so the enter/exit are real CSS transitions; when
-// shut it sits invisible and non-interactive.
-export function ConfirmSheet({
-  T, open, icon, title, body, confirmLabel, cancelLabel, destructive, onConfirm, onCancel,
-}: {
-  T: Theme; open: boolean; icon: string; title: string; body?: string;
-  confirmLabel: string; cancelLabel: string; destructive?: boolean;
-  onConfirm: () => void; onCancel: () => void;
+// ── Switch (toggle) ───────────────────────────────────────────
+export function Switch({ T, on, onClick, busy }: { T: Theme; on: boolean; onClick: () => void; busy?: boolean }) {
+  return (
+    <button onClick={e => { e.stopPropagation(); if (!busy) onClick(); }} aria-pressed={on} style={{
+      ...btnReset, width: 46, height: 28, borderRadius: 999, flexShrink: 0, position: 'relative',
+      background: on ? T.accent : hexA(T.text, 0.16),
+      transition: 'background .2s', opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer',
+    }}>
+      <span style={{
+        position: 'absolute', top: 3, left: on ? 21 : 3, width: 22, height: 22, borderRadius: 999,
+        background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.25)', transition: 'left .2s',
+      }} />
+    </button>
+  );
+}
+
+// ── Bottom sheet ──────────────────────────────────────────────
+// A slide-up panel. Backdrop tap = close. Always mounted so the enter/exit
+// are real CSS transitions; when shut it sits invisible and non-interactive.
+export function Sheet({ T, open, onClose, children }: {
+  T: Theme; open: boolean; onClose: () => void; children: React.ReactNode;
 }) {
-  const accent = destructive ? DANGER : T.accent;
-  const accentSoft = destructive ? DANGER_SOFT : T.accentSoft;
   return (
     <div
-      onClick={onCancel}
+      onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
         background: hexA('#1a2a1e', open ? 0.42 : 0), backdropFilter: open ? 'blur(2px)' : 'none',
@@ -693,29 +648,73 @@ export function ConfirmSheet({
           transition: 'transform .3s cubic-bezier(.22,.61,.36,1)',
         }}>
         <div style={{ width: 38, height: 4, borderRadius: 999, background: T.sep, margin: '0 auto 15px' }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: accentSoft,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <TGIcon name={icon} size={21} color={accent} stroke={2} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: T.font, fontSize: 16.5, fontWeight: 700, color: T.text, letterSpacing: -0.2 }}>{title}</div>
-            {body && <div style={{ fontFamily: T.font, fontSize: 13, color: T.sub, lineHeight: '18px', marginTop: 2 }}>{body}</div>}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-          <button onClick={onCancel} style={{
-            ...btnReset, flex: 1, height: 46, borderRadius: 13, background: T.nestedBg,
-            color: T.text, fontFamily: T.font, fontSize: 14.5, fontWeight: 600,
-          }}>{cancelLabel}</button>
-          <button onClick={onConfirm} style={{
-            ...btnReset, flex: 1, height: 46, borderRadius: 13, background: accent,
-            color: '#fff', fontFamily: T.font, fontSize: 14.5, fontWeight: 700,
-          }}>{confirmLabel}</button>
-        </div>
+        {children}
       </div>
     </div>
+  );
+}
+
+// One tappable row inside a Sheet: icon tile · label + optional sub · trailing slot.
+export function SheetRow({ T, icon, label, sub, danger, busy, trailing, onClick }: {
+  T: Theme; icon: string; label: string; sub?: string; danger?: boolean; busy?: boolean;
+  trailing?: React.ReactNode; onClick?: () => void;
+}) {
+  const fg = danger ? DANGER : T.text;
+  return (
+    <div role="button" onClick={busy ? undefined : onClick} style={{
+      width: '100%', display: 'flex', alignItems: 'center', gap: 12, WebkitTapHighlightColor: 'transparent',
+      padding: '11px 4px', opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer',
+    }}>
+      <div style={{
+        width: 38, height: 38, borderRadius: 12, flexShrink: 0, background: danger ? DANGER_SOFT : T.nestedBg,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {busy ? <Spinner color={T.hint} size={16} /> : <TGIcon name={icon} size={19} color={danger ? DANGER : T.sub} stroke={2} />}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: T.font, fontSize: 15, fontWeight: 600, color: fg }}>{label}</div>
+        {sub && <div style={{ fontFamily: T.font, fontSize: 12.5, color: T.hint, marginTop: 1, lineHeight: '16px' }}>{sub}</div>}
+      </div>
+      {trailing}
+    </div>
+  );
+}
+
+// ── Confirm bottom-sheet ──────────────────────────────────────
+// A yes/no on top of Sheet, used by the swipe actions and destructive settings.
+export function ConfirmSheet({
+  T, open, icon, title, body, confirmLabel, cancelLabel, destructive, onConfirm, onCancel,
+}: {
+  T: Theme; open: boolean; icon: string; title: string; body?: string;
+  confirmLabel: string; cancelLabel: string; destructive?: boolean;
+  onConfirm: () => void; onCancel: () => void;
+}) {
+  const accent = destructive ? DANGER : T.accent;
+  const accentSoft = destructive ? DANGER_SOFT : T.accentSoft;
+  return (
+    <Sheet T={T} open={open} onClose={onCancel}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{
+          width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: accentSoft,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <TGIcon name={icon} size={21} color={accent} stroke={2} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: T.font, fontSize: 16.5, fontWeight: 700, color: T.text, letterSpacing: -0.2 }}>{title}</div>
+          {body && <div style={{ fontFamily: T.font, fontSize: 13, color: T.sub, lineHeight: '18px', marginTop: 2 }}>{body}</div>}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+        <button onClick={onCancel} style={{
+          ...btnReset, flex: 1, height: 46, borderRadius: 13, background: T.nestedBg,
+          color: T.text, fontFamily: T.font, fontSize: 14.5, fontWeight: 600,
+        }}>{cancelLabel}</button>
+        <button onClick={onConfirm} style={{
+          ...btnReset, flex: 1, height: 46, borderRadius: 13, background: accent,
+          color: '#fff', fontFamily: T.font, fontSize: 14.5, fontWeight: 700,
+        }}>{confirmLabel}</button>
+      </div>
+    </Sheet>
   );
 }

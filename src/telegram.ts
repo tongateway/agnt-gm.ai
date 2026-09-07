@@ -15,7 +15,6 @@ interface TelegramWebApp {
   offEvent(event: string, cb: () => void): void;
   openLink?(url: string): void;
   openTelegramLink?(url: string): void;
-  openInvoice?(url: string, callback?: (status: InvoiceStatus) => void): void;
   initData?: string;
   platform?: string;
   version?: string;
@@ -46,9 +45,6 @@ interface TelegramWebApp {
     offClick(cb: () => void): void;
   };
 }
-
-// Telegram.WebApp.openInvoice callback statuses.
-export type InvoiceStatus = 'paid' | 'cancelled' | 'failed' | 'pending';
 
 declare global {
   interface Window {
@@ -125,16 +121,6 @@ export function initTelegram(): void {
   syncFullscreenInset();
 }
 
-export function telegramColorScheme(): 'light' | 'dark' | null {
-  return insideTelegram ? webApp?.colorScheme ?? null : null;
-}
-
-export function onThemeChanged(cb: () => void): () => void {
-  if (!insideTelegram || !webApp) return () => {};
-  webApp.onEvent('themeChanged', cb);
-  return () => webApp.offEvent('themeChanged', cb);
-}
-
 export function syncChrome(headerColor: string, bgColor: string): void {
   if (!insideTelegram) return;
   webApp?.setHeaderColor?.(headerColor);
@@ -170,33 +156,9 @@ export function telegramLanguageCode(): string | null {
   return insideTelegram ? webApp?.initDataUnsafe?.user?.language_code || null : null;
 }
 
-export interface TgUser { initials: string; photoUrl: string | null }
-
-export function telegramUser(): TgUser | null {
-  if (!insideTelegram) return null;
-  const u = webApp?.initDataUnsafe?.user;
-  if (!u) return null;
-  const initials = `${(u.first_name || '')[0] || ''}${(u.last_name || '')[0] || ''}`.toUpperCase() || '?';
-  return { initials, photoUrl: u.photo_url || null };
-}
-
 export function openExternal(url: string): void {
   if (webApp?.openLink) webApp.openLink(url);
   else window.open(url, '_blank', 'noopener');
-}
-
-// Open a Telegram Stars invoice (from createInvoiceLink on the backend) and
-// resolve with the payment outcome. Rejects when not running inside Telegram or
-// the client is too old to support openInvoice — callers should surface that as
-// "open in Telegram to pay".
-export function openInvoice(invoiceLink: string): Promise<InvoiceStatus> {
-  return new Promise((resolve, reject) => {
-    if (!insideTelegram || !webApp?.openInvoice) {
-      reject(new Error('openInvoice unavailable — open this bot inside Telegram to pay'));
-      return;
-    }
-    webApp.openInvoice(invoiceLink, (status) => resolve(status));
-  });
 }
 
 // Native haptic feedback — the physical tick that makes a swipe feel real.

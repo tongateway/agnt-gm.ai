@@ -1,7 +1,8 @@
-// Chat — shared owner↔AI chat plumbing + renderer, used by the clarify step
-// (Build tab) and the per-bot chat (My Bots). Backed by the real chat API:
-// cursor polling, optimistic owner messages, ai_thinking typing indicator,
-// quick-reply options, role=system deploy/build logs.
+// Chat — the owner↔AI chat plumbing + renderer behind the Bot page: intake
+// questions, env questions, build events and post-build change requests are
+// ONE thread. Backed by the real chat API: cursor polling, optimistic owner
+// messages, ai_thinking typing indicator, quick-reply options, role=system
+// build/deploy events.
 import { useEffect, useRef, useState } from 'react';
 import { Theme } from '../theme';
 import { ChatMessage, getChatMessages, sendChatMessage } from '../api/client';
@@ -12,7 +13,7 @@ import { useT } from '../i18n';
 
 // adaptive polling: tight while an AI turn is running (the answer can land
 // any moment), relaxed when the chat is idle, and much slower when the chat
-// isn't the focused view (it's only feeding the overview's activity strip).
+// isn't the focused view.
 const POLL_FAST_MS = 1200;
 const POLL_IDLE_MS = 4000;
 const POLL_BG_MS = 12000;
@@ -147,12 +148,7 @@ const EVENT_KIND: Record<string, { palette: Pal; icon: string }> = {
   test: { palette: 'amber', icon: 'beaker' },
   feedback: { palette: 'neutral', icon: 'refresh' },
   log_only: { palette: 'neutral', icon: 'code' },
-  task_update: { palette: 'neutral', icon: 'check' },
-  task_run: { palette: 'amber', icon: 'bolt' },
-  task_create: { palette: 'neutral', icon: 'plus' },
-  retry_task: { palette: 'amber', icon: 'refresh' },
   pr_opened: { palette: 'amber', icon: 'code' },
-  task_done: { palette: 'green', icon: 'check' },
   build: { palette: 'terracotta', icon: 'bolt' },
   deploy: { palette: 'green', icon: 'arrowUp' },
   pause: { palette: 'neutral', icon: 'pause' },
@@ -191,12 +187,15 @@ function EventRow({ T, msg }: { T: Theme; msg: ChatMessage }) {
   );
 }
 
-export function ChatThread({ T, messages, thinking, thinkingStatus, onOption, onRetry, pendingNote }: {
+export function ChatThread({ T, messages, thinking, thinkingStatus, onOption, onRetry, escape, pendingNote }: {
   T: Theme; messages: ChatMessage[]; thinking: boolean;
   thinkingStatus?: string; // what the AI is doing right now — shown in the typing bubble
   onOption?: (label: string) => void;
   onRetry?: (m: ChatMessage) => void; // re-send a failed owner message
-  pendingNote?: string | null; // e.g. "Generating your spec…" once the chat hands off
+  // a persistent escape chip rendered beside the quick replies (intake only):
+  // "Just build it — you decide the rest"
+  escape?: { label: string; onPick: () => void } | null;
+  pendingNote?: string | null; // a spinner line under the thread
 }) {
   const t = useT();
   const opts = onOption ? activeOptions(messages) : null;
@@ -246,6 +245,16 @@ export function ChatThread({ T, messages, thinking, thinkingStatus, onOption, on
       {/* quick replies live at the foot of the feed, terracotta bordered chips */}
       {opts && !thinking && onOption && (
         <QuickReplies T={T} options={opts.options} onPick={onOption} multi={opts.multi} />
+      )}
+      {opts && !thinking && escape && (
+        <button onClick={escape.onPick} style={{
+          alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 7,
+          border: 'none', cursor: 'pointer', padding: '9px 16px', borderRadius: 999,
+          background: T.accentSoft, color: T.accent,
+          fontFamily: T.font, fontSize: 13.5, fontWeight: 600, WebkitTapHighlightColor: 'transparent',
+        }}>
+          {escape.label}
+        </button>
       )}
       {pendingNote && !thinking && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, alignSelf: 'center', padding: '4px 0' }}>

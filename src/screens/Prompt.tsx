@@ -1,9 +1,8 @@
-// Prompt — onboarding hero: "Describe the bot you want" (Bold 1c).
-// Top row: AGNTDEV brand lockup left, "My bots" link right. Eyebrow pill,
-// two-tone hero, prompt card with a terracotta send button, and idea chips.
+// Prompt — the Home hero: "Describe the bot you want" (Bold 1c).
+// Top row: AGNTDEV brand lockup left, language toggle right. Eyebrow pill,
+// two-tone hero, prompt card with a terracotta "Build it" button, idea chips.
 import { useEffect, useRef } from 'react';
 import { Theme, btnReset } from '../theme';
-import { TgUser } from '../telegram';
 import { TGIcon, Spinner, Wordmark } from '../ui';
 import { useLang, useT, tr } from '../i18n';
 
@@ -162,7 +161,7 @@ export type StartBtn = { label: string; disabled?: boolean; busy?: boolean; onCl
 
 export function PromptScreen({ T, idea, setIdea, changed, error, startBtn }: {
   T: Theme; idea: string; setIdea: (v: string) => void; changed: boolean;
-  user?: TgUser | null; onToggleTheme?: () => void; error?: string | null;
+  error?: string | null;
   startBtn?: StartBtn | null;
 }) {
   const t = useT();
@@ -174,7 +173,7 @@ export function PromptScreen({ T, idea, setIdea, changed, error, startBtn }: {
   const chips = IDEA_EXAMPLES.slice(0, 6);
   const canStart = !!idea.trim() && !!startBtn && !startBtn.disabled;
   return (
-    <div style={{ padding: '16px 22px 24px', display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+    <div style={{ padding: '16px 22px 0', display: 'flex', flexDirection: 'column' }}>
       {/* brand lockup · language toggle */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
         <Wordmark T={T} size={30} />
@@ -213,8 +212,8 @@ export function PromptScreen({ T, idea, setIdea, changed, error, startBtn }: {
           : <>Describe the bot <span style={{ color: T.accent }}>you want</span></>}
       </div>
       <div style={{ fontFamily: T.font, fontSize: 15.5, fontWeight: 500, color: T.sub, marginTop: 12, lineHeight: '22px' }}>
-        {t('Answer a few questions and we build a real Telegram bot and put it live — usually in a couple of minutes. No coding.',
-           'Ответьте на пару вопросов — и мы соберём настоящего Telegram-бота и запустим его, обычно за пару минут. Без кода.')}
+        {t('Describe it, tap Create your bot, and it’s live — refine it by chatting. No coding.',
+           'Опишите бота, нажмите «Создать бота» — и он в эфире. Дорабатывайте в переписке. Без кода.')}
       </div>
 
       {/* prompt card with send button */}
@@ -235,17 +234,18 @@ export function PromptScreen({ T, idea, setIdea, changed, error, startBtn }: {
           <button
             onClick={canStart && !startBtn?.busy ? startBtn!.onClick : undefined}
             disabled={!canStart}
-            aria-label={startBtn?.label || 'Start'}
             style={{
-              ...btnReset, width: 48, height: 48, borderRadius: 14,
+              ...btnReset, height: 46, padding: '0 16px 0 18px', borderRadius: 14,
               background: canStart ? T.accent : T.nestedBg, color: canStart ? T.accentText : T.hint,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              fontFamily: T.font, fontSize: 15, fontWeight: 700, letterSpacing: -0.2,
               boxShadow: canStart ? T.ctaShadow : 'none', transition: 'background .2s',
               cursor: canStart ? 'pointer' : 'default',
             }}>
+            {startBtn?.label || t('Build it', 'Собрать')}
             {startBtn?.busy
-              ? <Spinner color={T.accentText} size={20} />
-              : <TGIcon name="arrowRight" size={22} color={canStart ? T.accentText : T.hint} stroke={2.4} />}
+              ? <Spinner color={T.accentText} size={18} />
+              : <TGIcon name="arrowRight" size={20} color={canStart ? T.accentText : T.hint} stroke={2.4} />}
           </button>
         </div>
       </div>

@@ -8,12 +8,18 @@ const BASE: string = (import.meta.env.VITE_API_BASE as string | undefined)
 export class ApiError extends Error {
   status: number;
   details?: string;
-  warning?: string; // 409s carry an actionable `warning` (e.g. cancel-review escape) — surfaced verbatim
-  constructor(status: number, message: string, details?: string, warning?: string) {
+  warning?: string;      // 409s carry an actionable `warning` — surfaced verbatim
+  retry?: boolean;       // 409 from bot/initiate: the project isn't named yet — try again shortly
+  botUsername?: string;  // 409 from bot/initiate: a bot already exists — just poll it
+  constructor(status: number, message: string, body?: Record<string, unknown> | null) {
     super(message);
     this.status = status;
-    this.details = details;
-    this.warning = warning;
+    if (body) {
+      if (typeof body.details === 'string') this.details = body.details;
+      if (typeof body.warning === 'string') this.warning = body.warning;
+      if (body.retry === true) this.retry = true;
+      if (typeof body.bot_username === 'string' && body.bot_username) this.botUsername = body.bot_username;
+    }
   }
 }
 
@@ -22,10 +28,10 @@ let authToken: string | null = null;
 export function setAuthToken(token: string | null): void { authToken = token; }
 
 // Global rate-limit backoff. A 429 from anywhere pauses ALL polling GETs until
-// this time, so the many background pollers (chat, /blocked, /dag, overview…)
-// stop hammering instead of each independently retrying into the limit.
-// Mutations (POST/PUT/DELETE) are never short-circuited — a user action must
-// not be silently dropped; polls catch the synthetic 429 and keep their snapshot.
+// this time, so the background pollers (chat, project, bot, analytics) stop
+// hammering instead of each independently retrying into the limit. Mutations
+// (POST/PUT/DELETE) are never short-circuited — a user action must not be
+// silently dropped; polls catch the synthetic 429 and keep their snapshot.
 let rateLimitedUntil = 0;
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -49,93 +55,79 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   let json: any = null;
   try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
   if (!res.ok && res.status !== 202) {
-    throw new ApiError(res.status, json?.error || res.statusText || 'request failed', json?.details, json?.warning);
+    throw new ApiError(res.status, json?.error || res.statusText || 'request failed', json);
   }
   return json as T;
 }
 
 // ── Projects ──────────────────────────────────────────────────
 
+// draft (intake chat) → validating → generating → live (building; the bot may
+// already answer) → current_phase 'published' once the build converged.
+// rejected = the content policy said no (see rejection_reason).
 export type ProjectStatus =
-  | 'validating' | 'ready_to_publish' | 'publishing' | 'live'
-  | 'rejected' | 'failed' | 'completed' | string;
+  | 'draft' | 'validating' | 'generating' | 'live' | 'rejected' | 'failed' | string;
 
 export interface Project {
   id: string;
-  slug: string;
-  name: string;
+  slug: string;            // 'draft-…' until the first assistant turn names the project
+  name: string;            // 'Untitled' until named
   status: ProjectStatus;
   short_description?: string;
   goal_of_project?: string;
-  about_of_project?: string;
   rejection_reason?: string;
-  needs_frontend?: boolean;
-  needs_backend?: boolean;
-  needs_database?: boolean;
-  database_kind?: string;
-  token_symbol?: string;
   github_repo_url?: string;
-  github_project_url?: string;
   live_url?: string;
-  bot_username?: string;   // the real managed-bot @username (for t.me links on Discovery)
-  bot_avatar_url?: string; // AI-generated bot avatar (public Spaces URL); absent until generated
+  bot_username?: string;   // the real managed-bot @username (t.me links on Discovery)
+  bot_avatar_url?: string; // AI-generated bot avatar (public URL); absent until generated
+  bot_is_live?: boolean;   // the managed bot's container is running (list + detail)
+  bot_container_state?: string;
   discoverable?: boolean;  // listed on the Discover page; absent/true = shown, false = opted out
   logo_url?: string;
   preview_image_url?: string;
-  open_tasks?: number;
-  open_easy?: number;
-  open_hard?: number;
+  build_mode?: string;
   active_agents?: number;
   prs_merged_7d?: number;
-  owner_wallet_address?: string;
+  open_tasks?: number;
   created_at?: string;
-  published_at?: string;
-  build_mode?: string; // 'local_agent' | 'platform_agent' once the API ships it
-  // ── task_manager flow (landing on the project DTO; absent for now — feature-detect) ──
-  build_pipeline?: 'phase' | 'task_manager' | 'whole_bot' | string; // discriminator
-  current_phase?: string;   // 'published' once the bot is actually live (gap #4 workaround)
-  phase_status?: string;
-  bot_go_live_at?: string;  // server-side only today (gap #4)
-  decomposed_at?: string;
-  auto_merge_enabled?: boolean;
-  auto_merge_after_revalidation?: boolean;
-  // whole_bot build snapshot (stage label + approx %/ETA + pass timeline) — only
-  // present on the single-project detail endpoint for build_pipeline='whole_bot'.
+  published_at?: string;   // stamped when the build converged (phase → published)
+  current_phase?: string;  // 'building' | 'tests' | 'published' | 'failed'
+  bot_go_live_at?: string; // first successful deploy of a built bot
+  // funnel stamps (v2; optional — render only when present)
+  brief_ready_at?: string;
+  first_pass_at?: string;
+  first_merge_at?: string;
+  preview_live_at?: string;
+  // build snapshot (stage label + approx %/ETA + pass timeline) — only on the
+  // single-project detail endpoint.
   build_progress?: BuildProgress;
 }
 
-// whole_bot N-pass build snapshot the build screen renders (a progress bar +
-// plain-language stage + approximate ETA + per-pass timeline). All approximate.
+// The build snapshot the Bot page renders: a server-owned, localized stage
+// label + an APPROXIMATE percent/ETA. Never re-derive the label client-side.
 export interface BuildProgress {
   phase: string;          // building | tests | published | failed
-  stage: string;          // blueprint|building|reviewing|testing|deploying|live|failed
-  stage_label: string;    // human one-liner, e.g. "🔨 Building your bot — pass 2"
+  stage: string;          // blueprint|building|reviewing|testing|deploying|live|live_with_gaps|awaiting_bot|awaiting_agent|failed
+  stage_label: string;    // human one-liner, e.g. "🔨 Building your bot"
   percent: number;        // 0..100, APPROXIMATE
   eta_seconds: number;    // APPROXIMATE remaining; 0 when live/failed
-  pass_current: number;   // highest pass number reached (THIS build; resets to 1 each change)
-  merged_passes: number;  // accepted passes
-  pass_floor: number;     // min passes before publish
+  pass_current: number;
+  merged_passes: number;
+  pass_floor: number;
   passes?: BuildProgressPass[] | null; // null/absent before the first pass — always guard
-  // BACKEND TODO: iterations restart at 1 on every "Ask for change" build, so the
-  // UI can't show a lifetime number (a change reads as "Iteration 1" when the bot
-  // already ran 8+). When the backend can supply how many iterations ran in PRIOR
-  // builds, send it here; the UI adds it to pass_no/pass_current for a cumulative
-  // number. Absent/0 = initial build (today's behavior). See iterOffset() usage.
-  iteration_offset?: number;
 }
 
 export interface BuildProgressPass {
   pass_no: number;
-  status: string;         // building|merged|reviewed|failed
+  status: string;
   pr_number?: number;
   complete?: boolean;
-  label: string;          // short row label, e.g. "merged · complete ✓"
+  label: string;
 }
 
 export interface ProjectDetail {
   project: Project;
   readme_md?: string;
-  tokenomics?: unknown;
 }
 
 export interface ProjectList {
@@ -149,21 +141,12 @@ export function getProject(idOrSlug: string): Promise<ProjectDetail> {
   return request('GET', `/builder/projects/${encodeURIComponent(idOrSlug)}`);
 }
 
-export interface PublishResult {
-  project: Project;
-  github_repo_url?: string;
-  issues_opened?: number;
-}
-
-export function publishProject(id: string): Promise<PublishResult> {
-  return request('POST', `/builder/projects/${encodeURIComponent(id)}/publish`);
-}
-
-// ── Owner ↔ AI chat (clarify the idea → draft project → pipeline) ──
+// ── Owner ↔ AI chat (the whole conversation: intake → build events → updates) ──
 // POST /builder/chat creates a draft project from the first message and runs
 // the first AI turn. Poll GET .../chat/messages with the id cursor; quick
-// replies arrive as `options`, deploy logs as role=system, and `ai_thinking`
-// drives the typing indicator.
+// replies arrive as `options`, build events as role=system, and `ai_thinking`
+// drives the typing indicator. On a built bot every owner message is a change
+// request or a question — the server decides.
 
 export interface ChatMessage {
   id: number;
@@ -210,16 +193,17 @@ export function getChatMessages(idOrSlug: string, after = 0, limit = 50): Promis
 }
 
 // ── Managed bot (real Telegram bot, created via the manager bot) ──
-// initiate: records a suggested username, returns the manager-bot deep link
-// the owner taps inside Telegram (pre-filled child-bot creation screen).
-// Idempotent — repeat calls return the same (or a fresh) suggestion.
+// initiate: reserves a username and returns the manager-bot deep link the
+// owner taps inside Telegram (pre-filled child-bot creation screen). Works
+// while the project is still a draft. Throws ApiError(409, retry=true) while
+// the project has no name yet (retry in a few seconds) and ApiError(409,
+// botUsername) when a bot already exists (just poll getProjectBot).
 export interface BotInitiate {
   project_id?: string;
   project_slug?: string;
   suggested_username?: string;
   manager_bot?: string;
   deep_link?: string;
-  request_managed_bot?: boolean;
   instructions?: string;
 }
 
@@ -232,17 +216,17 @@ export interface ProjectBot {
   bot_name?: string;
   bot_id?: string;
   is_managed?: boolean;
-  container_state?: string; // live-status surface — non-empty/'running' ⇒ the bot actually serves users
+  container_state?: string; // 'running' ⇒ the bot actually serves users
   last_active_at?: string;
   created_at?: string;
   version?: string;
-  commands?: unknown;
   paused?: boolean;      // managed bot paused (webhook off)
   paused_at?: string;
 }
 
-// the managed bot is actually serving users (the only FE-visible go-live signal
-// besides current_phase==='published') — do NOT key this off project.status.
+// the managed bot is actually answering users — the "live" signal. A bot can be
+// live BEFORE the build finishes (the scaffold deploys ~1 min after the token
+// lands), so do NOT key this off project.status or current_phase.
 export function botIsLive(b: ProjectBot | null | undefined): boolean {
   if (!b || b.paused) return false;
   const s = (b.container_state || '').toLowerCase();
@@ -259,32 +243,16 @@ export async function getProjectBot(idOrSlug: string): Promise<ProjectBot | null
   }
 }
 
-// Not in the API yet — called optimistically; 404/405 → the app falls back
-// to hiding the bot locally, and upgrades automatically once this ships.
+// Archives the project server-side (it leaves the owner's list on the next fetch).
 export function deleteProject(idOrSlug: string): Promise<unknown> {
   return request('DELETE', `/builder/projects/${encodeURIComponent(idOrSlug)}`);
-}
-
-// ── Build mode: who builds the tasks ──────────────────────────
-// 'platform' — the platform's agents build and ship PRs.
-// 'local'    — the owner's connected agent does the work; platform only
-//              runs gates + deploys.
-// Not in the API yet — set optimistically (404 tolerated, mode kept locally).
-export type BuildMode = 'platform' | 'local';
-
-export function setBuildModeApi(idOrSlug: string, mode: BuildMode): Promise<unknown> {
-  return request('PUT', `/builder/projects/${encodeURIComponent(idOrSlug)}/build-mode`, {
-    mode: mode === 'local' ? 'local_agent' : 'platform_agent',
-  });
 }
 
 export function listProjectsByAgent(agentId: string, limit = 50): Promise<ProjectList> {
   return request('GET', `/builder/projects?owner_agent_id=${encodeURIComponent(agentId)}&limit=${limit}`);
 }
 
-// ── Discovery: public feed of live bots (gap — backend ticket pending) ──
-// Lists LIVE, discoverable bots (everyone's). The UI feature-detects: a
-// 404/405 (endpoint not shipped) surfaces as an empty "coming soon" state.
+// ── Discovery: public feed of live, discoverable bots (everyone's) ──
 export function listDiscoverBots(limit = 50): Promise<ProjectList> {
   return request('GET', `/builder/projects/discover?limit=${limit}`);
 }
@@ -301,190 +269,6 @@ export interface TelegramAuthResult {
 
 export function authTelegram(initData: string): Promise<TelegramAuthResult> {
   return request('POST', '/auth/telegram', { init_data: initData });
-}
-
-// ── Tasks ─────────────────────────────────────────────────────
-
-export interface TaskItem {
-  id: string;
-  slug: string;
-  title: string;
-  status: string;
-  difficulty?: 'easy' | 'medium' | 'hard' | string;
-  weight?: number;
-  reward_amount?: number;
-  reward_amount_human?: string;
-  is_claimed?: boolean;
-  claimers_count?: number;
-  github_issue_url?: string;
-  pr_url?: string;
-  pr_number?: number;
-  solved_by_agent_id?: string;
-  // DAG extras (chat-created projects)
-  phase?: string;
-  node_kind?: string; // task_manager type: scaffold|feature|epic|question|review — the real pill (NOT task_kind)
-  depends_on?: string[];
-  claim_reason?: string;
-}
-
-// A soft-claim on a task (2h TTL) — who is currently working it. Never null.
-export interface ClaimerBrief {
-  agent_id: string;
-  username?: string | null;
-  avatar_url?: string | null;
-  claimed_at?: string;
-  expires_at?: string;
-}
-
-export interface TaskDetail {
-  id?: string;
-  slug: string;
-  title: string;
-  body_md?: string;
-  github_issue_url?: string;
-  pr_url?: string;
-  status?: string;
-  // task_manager extras (only on the per-task GET — not on /dag)
-  node_kind?: string;        // scaffold | feature | epic | question | review
-  parent_id?: string;        // epic→subtask tree; absent = top-level — the ONLY source
-  assignee_type?: string;    // 'agent' (executor) | 'owner' (a question task)
-  skill_refs?: string[];
-  spec_body?: string;        // resolved details the task references
-  blocked_since?: string;    // RFC3339
-  attempt_count?: number;
-  failure_reason?: string;   // why a 'failed' task gave up — optimistic; absent today (backend gap)
-  claimers?: ClaimerBrief[];
-  is_claimed?: boolean;
-}
-
-// Full task body — works for both legacy and DAG tasks.
-export async function getTaskDetail(idOrSlug: string, taskSlug: string): Promise<TaskDetail | null> {
-  try {
-    const r = await request<{ task?: TaskDetail }>('GET',
-      `/builder/projects/${encodeURIComponent(idOrSlug)}/tasks/${encodeURIComponent(taskSlug)}`);
-    return r.task ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export interface TaskList {
-  project_id: string;
-  project_slug: string;
-  token_symbol?: string;
-  project_github_url?: string;
-  tasks: TaskItem[];
-}
-
-export function listProjectTasks(idOrSlug: string): Promise<TaskList> {
-  return request('GET', `/builder/projects/${encodeURIComponent(idOrSlug)}/tasks`);
-}
-
-// ── Task DAG (chat-created AGNTDEV projects) ──────────────────
-// These projects keep their work in a per-phase task graph; the legacy
-// /tasks list is empty for them. fetchProjectTasks() unifies the two.
-
-export interface DagTask {
-  slug: string;
-  title: string;
-  task_kind?: string;  // MEANINGLESS for task_manager — do NOT branch on it
-  node_kind?: string;  // scaffold | feature | epic | question | review — THE type (absent = legacy/phase row)
-  phase?: string;      // always "" for task_manager — ignore
-  status: string;      // open | in_progress | in_review | blocked | done | cancelled | failed
-  depends_on?: string[]; // dependency SLUGS (leaves only; never to/from an epic)
-  claimable?: boolean; // live gate verdict — trust it for Ready vs Backlog
-  claim_reason?: string;
-  assignee_agent_id?: string; // the bound executor
-  claimers?: ClaimerBrief[];  // 2h soft-claims; never null
-  // landing on the /dag DTO (gap #3) — feature-detect; until then fetch per-task
-  parent_id?: string; // epic→subtask tree
-  skills?: string[];  // skills the task references (a.k.a. skill_refs on the per-task GET)
-}
-
-// task_manager rows carry node_kind; phase rows carry `phase` and no node_kind.
-// Presence of node_kind on /dag is the reliable discriminator (gap #1 workaround).
-export function isTaskManagerDag(d: { tasks?: DagTask[] } | null | undefined): boolean {
-  return !!d?.tasks?.some(t => !!t.node_kind);
-}
-
-// one-shot discriminator at board/inbox open — public /dag, no token needed.
-export async function getProjectPipeline(idOrSlug: string): Promise<'task_manager' | 'phase'> {
-  try {
-    return isTaskManagerDag(await getProjectDag(idOrSlug)) ? 'task_manager' : 'phase';
-  } catch {
-    return 'phase';
-  }
-}
-
-export interface DagInfo {
-  current_phase?: string;
-  phase_status?: string;
-  next_action?: string;
-  next_action_reason?: string;
-}
-
-export interface ProjectDag extends DagInfo {
-  project_id: string;
-  project_slug: string;
-  tasks: DagTask[];
-}
-
-export function getProjectDag(idOrSlug: string): Promise<ProjectDag> {
-  return request('GET', `/builder/projects/${encodeURIComponent(idOrSlug)}/dag`);
-}
-
-export interface UnifiedTasks {
-  tasks: TaskItem[];
-  token_symbol?: string;
-  dag?: DagInfo;
-  // task_manager discriminator derived from the SAME /dag fetch (node_kind) — so
-  // callers don't need a second getProjectDag just to route old vs new (gap #1).
-  isTaskManager?: boolean;
-}
-
-// Backend ships some claim_reasons that just restate an obvious, non-actionable
-// state (in-progress task, epic rollup) — drop those so the UI stays quiet.
-const NOISE_CLAIM_REASONS = [
-  'task is in_progress; only open tasks can be claimed',
-  'epic nodes are display-only rollups and are never claimable',
-];
-function suppressNoiseReason(reason?: string): string | undefined {
-  if (!reason) return undefined;
-  return NOISE_CLAIM_REASONS.includes(reason.trim()) ? undefined : reason;
-}
-
-// DAG first (the real system for chat-created projects), legacy list as
-// the fallback for older bounty-style projects.
-export async function fetchProjectTasks(idOrSlug: string): Promise<UnifiedTasks> {
-  try {
-    const d = await getProjectDag(idOrSlug);
-    if (d.tasks?.length || d.current_phase) {
-      return {
-        isTaskManager: isTaskManagerDag(d),
-        tasks: (d.tasks || []).map(t => ({
-          id: t.slug,
-          slug: t.slug,
-          title: t.title,
-          status: t.status,
-          difficulty: t.task_kind, // legacy/phase pill
-          node_kind: t.node_kind,  // task_manager pill (scaffold|feature|epic|question|review)
-          claimers_count: t.claimers?.length || 0,
-          is_claimed: (t.claimers?.length || 0) > 0,
-          phase: t.phase,
-          depends_on: t.depends_on,
-          claim_reason: t.claimable === false ? suppressNoiseReason(t.claim_reason) : undefined,
-        })),
-        dag: {
-          current_phase: d.current_phase,
-          phase_status: d.phase_status,
-          next_action: d.next_action,
-          next_action_reason: d.next_action_reason,
-        },
-      };
-    }
-  } catch { /* no DAG — legacy project */ }
-  const legacy = await listProjectTasks(idOrSlug);
-  return { tasks: legacy.tasks || [], token_symbol: legacy.token_symbol, isTaskManager: false };
 }
 
 // ── Deployments (real deploy history; most recent first) ─────
@@ -505,38 +289,24 @@ export function listDeployments(idOrSlug: string): Promise<{ deployments: Deploy
   return request('GET', `/builder/projects/${encodeURIComponent(idOrSlug)}/deployments`);
 }
 
-// ── Agent link: one-time connect code → delegate key (CLI side) ──
-// Mint is owner-scoped; the CLI exchanges the code via /auth/agent-link/claim.
-// The mini-app only mints and polls — the code IS the credential.
-
-export interface AgentLinkCode {
-  code: string;
-  expires_in?: number;
+export function deployFailed(d?: Deployment | null): boolean {
+  if (!d) return false;
+  return !!d.failure_reason || /fail|error|cancel/i.test(d.status || '');
 }
 
-export interface AgentLinkStatus {
-  status: 'pending' | 'connected';
-  connected_client?: string;
-  connected_at?: string;
-}
-
-export function mintAgentLink(projectId: string): Promise<AgentLinkCode> {
-  return request('POST', `/builder/projects/${encodeURIComponent(projectId)}/agent-link`);
-}
-
-export function getAgentLink(projectId: string): Promise<AgentLinkStatus> {
-  return request('GET', `/builder/projects/${encodeURIComponent(projectId)}/agent-link`);
+// "Retry deploy" — async (202). 409s carry the reason (no bot token, tests gate,
+// already running); 503 if the deploy worker is unconfigured. Narrated into chat.
+export function retryDeploy(idOrSlug: string): Promise<{ ok?: boolean; status?: string; project_id?: string }> {
+  return request('POST', `/builder/projects/${encodeURIComponent(idOrSlug)}/deploy`);
 }
 
 // ── Bot analytics (end-user usage of the DEPLOYED bot) ────────
-// Not in the API yet — 404/405 → null; the overview shows real build stats
-// until this lands. Mirrors the mock's "active users / today / vs. yest." card.
+// 404/405 → null; the usage card degrades to a friendly empty state.
 export interface BotAnalytics {
   active_users?: number;
   messages_today?: number;
-  delta_pct?: number; // change vs. yesterday
+  delta_pct?: number;      // change vs. yesterday
   window?: string;
-  // ── live usage summary (all optional; the card degrades gracefully) ──
   people_today?: number;   // distinct people the bot answered today
   users_total?: number;    // all-time unique users
   users_new_7d?: number;   // new unique users in the last 7 days
@@ -553,9 +323,7 @@ export async function getBotAnalytics(idOrSlug: string): Promise<BotAnalytics | 
   }
 }
 
-// ── Pause / resume the managed bot ────────────────────────────
-// Not in the API yet — set optimistically (404/405 tolerated, state kept
-// locally). The owner-visible status pill flips Live ⇄ Paused immediately.
+// ── Pause / resume the managed bot (server-owned `paused`) ────
 export function setBotPaused(idOrSlug: string, paused: boolean): Promise<unknown> {
   return request('PUT', `/builder/projects/${encodeURIComponent(idOrSlug)}/bot/pause`, { paused });
 }
@@ -616,14 +384,14 @@ export function deleteBotEnvValue(idOrSlug: string, key: string): Promise<BotEnv
     `/builder/projects/${encodeURIComponent(idOrSlug)}/bot/env/${encodeURIComponent(key)}`);
 }
 
-// opt a bot in/out of the Discover feed — optimistic (real PUT when the API ships)
+// opt a bot in/out of the Discover feed (server-owned `discoverable`)
 export function setDiscoverable(idOrSlug: string, on: boolean): Promise<unknown> {
   return request('PUT', `/builder/projects/${encodeURIComponent(idOrSlug)}/discoverable`, { discoverable: on });
 }
 
 // ── Regenerate the AI bot avatar (owner) ──────────────────────
 // Async 202 → { accepted, status:'pending' }; the new bot_avatar_url lands on a
-// later project poll. The button shows a brief "generating…" state meanwhile.
+// later project poll.
 export interface AvatarRegenResult {
   accepted?: boolean;
   status?: string; // 'pending'
@@ -632,149 +400,9 @@ export function regenerateBotAvatar(idOrSlug: string): Promise<AvatarRegenResult
   return request('POST', `/builder/projects/${encodeURIComponent(idOrSlug)}/avatar/regenerate`);
 }
 
-// ── Cloud agent (deploy one; max one per bot) ─────────────────
-// The "Add an agent" sheet's Cloud option deploys a single managed agent that
-// works the project's tasks. At most one per bot. Not in the API yet — the UI
-// reports "couldn't deploy" only on real errors.
-export interface CloudRun {
-  run_id?: string;
-  status?: string;
-}
-
-export function runCloudAgent(idOrSlug: string): Promise<CloudRun> {
-  return request('POST', `/builder/projects/${encodeURIComponent(idOrSlug)}/cloud-agent`);
-}
-
-// Live cloud-agent status — the source of truth for "is a cloud agent deployed",
-// so the UI doesn't depend on this client having recorded the deploy locally.
-// 404/405 → null (endpoint not shipped); fall back to build_mode + local state.
-export interface CloudAgentStatus {
-  deployed?: boolean;
-  status?: string;
-  id?: string;
-}
-export async function getCloudAgent(idOrSlug: string): Promise<CloudAgentStatus | null> {
-  try {
-    return await request('GET', `/builder/projects/${encodeURIComponent(idOrSlug)}/cloud-agent`);
-  } catch (e) {
-    if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return null;
-    throw e;
-  }
-}
-
-// ── task_manager: clarification thread + owner actions ─────────
-// The owner only watches and unblocks — these are the actions that move a
-// living DAG forward. All owner-only; a non-owner gets 403, a phase project 404.
-
-// a single thread comment (color by author_role; kind='answer' = the resolving reply)
-export interface TaskComment {
-  id: number;
-  task_id?: string;
-  project_id?: string;
-  author_role: 'agent' | 'owner' | 'system' | string;
-  author_agent_id?: string;
-  kind?: 'note' | 'question' | 'answer' | string;
-  body_md: string;
-  created_at?: string;
-}
-
-export function getTaskThread(idOrSlug: string, slug: string): Promise<{ comments: TaskComment[] }> {
-  return request('GET',
-    `/builder/projects/${encodeURIComponent(idOrSlug)}/tasks/${encodeURIComponent(slug)}/thread`);
-}
-
-// Resolving reply to a node_kind='question' task — flips it done + unblocks deps.
-export interface AnswerResult { question_slug?: string; unblocked?: string[] }
-export function answerQuestion(idOrSlug: string, slug: string, bodyMd: string): Promise<AnswerResult> {
-  return request('POST',
-    `/builder/projects/${encodeURIComponent(idOrSlug)}/tasks/${encodeURIComponent(slug)}/answer`,
-    { body_md: bodyMd });
-}
-
-// Non-resolving note on any task thread (back-and-forth that doesn't unblock).
-export function addTaskComment(idOrSlug: string, slug: string, bodyMd: string): Promise<{ ok: boolean; comment_id?: number }> {
-  return request('POST',
-    `/builder/projects/${encodeURIComponent(idOrSlug)}/tasks/${encodeURIComponent(slug)}/comments`,
-    { body_md: bodyMd });
-}
-
-// Cancel a task. Cancelling a node_kind='review' task requires ?confirm=true —
-// without it the API 409s with an actionable `warning` (the cancel-review escape).
-export interface CancelResult { slug?: string; status?: string; cascaded_cancels?: number }
-export function cancelTask(idOrSlug: string, slug: string, confirm = false): Promise<CancelResult> {
-  const q = confirm ? '?confirm=true' : '';
-  return request('POST',
-    `/builder/projects/${encodeURIComponent(idOrSlug)}/tasks/${encodeURIComponent(slug)}/cancel${q}`);
-}
-
-// Reopen a failed task (resets attempt_count). 409 if the task isn't 'failed'.
-export function reopenTask(idOrSlug: string, slug: string): Promise<{ slug?: string; status?: string }> {
-  return request('POST',
-    `/builder/projects/${encodeURIComponent(idOrSlug)}/tasks/${encodeURIComponent(slug)}/reopen`);
-}
-
-// "Needs your input" inbox: open questions + blocked + failed tasks, oldest first.
-export interface BlockedItem {
-  slug: string;
-  title: string;
-  node_kind?: string;
-  status: string;
-  blocked_since?: string;
-  warning?: string; // a systemically-failed review holding the go-live gate
-}
-export function getBlockedItems(idOrSlug: string): Promise<{ items: BlockedItem[] }> {
-  return request('GET', `/builder/projects/${encodeURIComponent(idOrSlug)}/blocked`);
-}
-
-// Post-go-live feedback that materializes NEW tasks into the living DAG.
-// Async (202). Rate limited 20/hr → 429. (Equivalent to a chat message once live.)
-export function postFeedback(idOrSlug: string, text: string): Promise<{ accepted?: boolean }> {
-  return request('POST', `/builder/projects/${encodeURIComponent(idOrSlug)}/feedback`, { text });
-}
-
-// Manual vs auto merge. Default enabled=true (PRs auto-merge). enabled=false
-// leaves approved PRs open for the owner to merge on GitHub (no in-app merge).
-export interface AutoMergeResult {
-  ok?: boolean;
-  project_id?: string;
-  auto_merge_enabled?: boolean;
-  auto_merge_after_revalidation?: boolean;
-}
-export function setAutoMerge(idOrSlug: string, enabled: boolean, afterRevalidation?: boolean): Promise<AutoMergeResult> {
-  const body: { enabled: boolean; after_revalidation?: boolean } = { enabled };
-  if (afterRevalidation !== undefined) body.after_revalidation = afterRevalidation;
-  return request('PATCH', `/builder/projects/${encodeURIComponent(idOrSlug)}/auto-merge`, body);
-}
-
-// "Retry deploy" — async (202). 409s carry the reason (no bot token, tests gate,
-// already running); 503 if the deploy worker is unconfigured. Narrated into chat.
-export function retryDeploy(idOrSlug: string): Promise<{ ok?: boolean; status?: string; project_id?: string }> {
-  return request('POST', `/builder/projects/${encodeURIComponent(idOrSlug)}/deploy`);
-}
-
-// Spec doc. No public endpoint exists yet (gap #2) — 404/405 → null and the UI
-// falls back to linking docs/spec.md in the repo. Tolerant of the eventual shape.
-export interface ProjectSpec {
-  title?: string;
-  body_md?: string;
-  content?: string;
-  markdown?: string;
-  updated_at?: string;
-  url?: string;
-}
-export async function getProjectSpec(idOrSlug: string): Promise<ProjectSpec | null> {
-  try {
-    return await request('GET', `/builder/projects/${encodeURIComponent(idOrSlug)}/spec`);
-  } catch (e) {
-    if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return null;
-    throw e;
-  }
-}
-
 // Blueprint ("The plan") — the AI's structured read of the idea. GET
-// /projects/:id/quality/blueprint (owner). The endpoint may not be shipped
-// everywhere yet, so 403/404/405 → null and the Plan screen shows a fallback.
-// All fields optional — the viewer renders whatever is present.
+// /projects/:id/quality/blueprint (owner). 403/404/405 → null and the Plan
+// screen shows a fallback. All fields optional — the viewer renders what's there.
 export interface BlueprintEntryPoint { command?: string; description?: string; actor?: string }
 export interface BlueprintFlow { name?: string; when?: string; trigger?: string; steps?: string[] | string; summary?: string }
 export interface BlueprintEntity { name?: string; description?: string; retention?: 'none' | 'session' | 'persistent' | string }
