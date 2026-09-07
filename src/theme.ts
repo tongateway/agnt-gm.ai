@@ -1,7 +1,6 @@
 // theme.ts — Telegram Mini-App design tokens (ported from the design's theme.jsx).
 
 export interface Theme {
-  dark: boolean;
   accent: string;
   accentText: string;
   accentSoft: string;
@@ -14,12 +13,10 @@ export interface Theme {
   hint: string;
   sub: string;
   sep: string;
-  sepStrong: string;
   botBubble: string;
   userBubble: string;
   userBubbleText: string;
   green: string;
-  greenSoft: string;
   red: string;
   redSoft: string;
   amber: string;
@@ -28,14 +25,11 @@ export interface Theme {
   mono: string;
   cardRadius: number;
   // ── Bold 1c extras ──
-  canvasBg: string;     // page surround behind the screen
-  flatBg: string;       // flat card / composer field
   nestedBg: string;     // nested tiles/chips inside a card
   accentPressed: string; // terracotta emphasis text (#A94A2F)
   gold: string;         // amber accent
   goldSoft: string;     // amber tint bg
   sage: string;         // sage chip bg
-  sageBorder: string;
   heroShadow: string;   // dark hero card shadow
   ctaShadow: string;    // terracotta CTA shadow
   tabShadow: string;    // floating tab bar shadow
@@ -59,32 +53,26 @@ export function hexA(hex: string, alpha: number): string {
 }
 
 // AGNTDEV "Bold 1c" — a single warm cream/terracotta/green palette (no
-// dark variant in this design). Mode + accent args are kept for call-site
-// compatibility but ignored: the design is one confident theme.
-export function tgTheme(_mode?: 'light' | 'dark', _accent?: string): Theme {
+// dark variant in this design; the theme toggle is gone with it).
+export function tgTheme(): Theme {
   return {
-    dark: false,
     accent: '#C15B3D',            // terracotta — primary CTA
     accentText: '#FBF8EF',        // cream text on terracotta
     accentSoft: '#F8E9E1',        // terracotta tint (soft fills)
     accentBorder: '#C15B3D',      // strong terracotta (selected chip / quick-reply)
     pageBg: '#ECE4CE',            // screen background
-    canvasBg: '#DED3B8',          // page surround behind the screen
     cardBg: '#FBF8EF',            // raised card surface
     headerBg: '#FBF8EF',          // header / footer chrome
     inputBg: '#F6F1E3',           // flat card / composer field
-    flatBg: '#F6F1E3',
     nestedBg: '#F1EADA',          // nested tiles/chips inside a card
     text: '#22402E',              // ink / primary green
     hint: '#B3A98C',
     sub: '#8C8168',
     sep: '#E4DAC0',               // borders
-    sepStrong: '#D8CDB2',
     botBubble: '#FBF8EF',         // assistant bubble (cream)
     userBubble: '#22402E',        // owner bubble (green)
     userBubbleText: '#F3ECD8',    // cream text
     green: '#3AA98B',             // success
-    greenSoft: '#E1E8D6',         // sage tint
     red: '#C15B3D',               // "needs fix" reads as terracotta here
     redSoft: '#F3DBCF',
     amber: '#B08D4C',             // gold
@@ -92,7 +80,6 @@ export function tgTheme(_mode?: 'light' | 'dark', _accent?: string): Theme {
     gold: '#B08D4C',
     goldSoft: '#F1E7CF',
     sage: '#E1E8D6',
-    sageBorder: '#C2D3BE',
     shadow: '0 10px 26px -18px rgba(34,64,46,0.3)',
     heroShadow: '0 16px 32px -18px rgba(34,64,46,0.6)',
     ctaShadow: '0 9px 19px -9px rgba(193,91,61,0.7)',
@@ -116,18 +103,9 @@ const TILE: Record<string, string> = {
 };
 const TILE_KEYS = Object.keys(TILE);
 
-// nudge a hex lighter for dark mode legibility
-function lighten(hex: string): string {
-  const h = hex.replace('#', '');
-  const r = Math.min(255, Math.round(parseInt(h.slice(0, 2), 16) * 1.25 + 26));
-  const g = Math.min(255, Math.round(parseInt(h.slice(2, 4), 16) * 1.25 + 26));
-  const b = Math.min(255, Math.round(parseInt(h.slice(4, 6), 16) * 1.25 + 26));
-  return `rgb(${r},${g},${b})`;
-}
-
-export function tile(key: string, dark: boolean): { fg: string; bg: string } {
+export function tile(key: string): { fg: string; bg: string } {
   const fg = TILE[key] || TILE.slate;
-  return { fg: dark ? lighten(fg) : fg, bg: hexA(fg, dark ? 0.2 : 0.11) };
+  return { fg, bg: hexA(fg, 0.11) };
 }
 
 // deterministic tile colour for a real bot (hash of its slug)

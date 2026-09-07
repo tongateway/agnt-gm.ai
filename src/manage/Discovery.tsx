@@ -2,7 +2,6 @@
 // Tapping a card opens the live bot in Telegram. The list comes from
 // GET /builder/projects/discover; other users' bots cannot be enumerated
 // client-side, so an empty API response stays empty.
-import { useMemo } from 'react';
 import { Theme, btnReset, toneFor } from '../theme';
 import { Project } from '../api/client';
 import { openTgLink } from '../telegram';
@@ -20,12 +19,6 @@ export interface DiscoverBot {
   tone: string;
   avatarUrl?: string; // AI-generated bot avatar / logo (falls back to the name monogram)
   preview: string;
-  activeAgents?: number;
-  merged7d?: number;
-  openTasks?: number;
-  buildMode?: string;
-  publishedAt?: string;
-  createdAt?: string;
 }
 
 // A bot with no username cannot be opened, so omit it from the feed.
@@ -38,12 +31,6 @@ export function discoverBotFromProject(p: Project): DiscoverBot | null {
     tone: toneFor(p.slug),
     avatarUrl: p.bot_avatar_url || p.logo_url || p.preview_image_url || undefined,
     preview: p.short_description || p.goal_of_project || DISCOVER_FALLBACK,
-    activeAgents: p.active_agents,
-    merged7d: p.prs_merged_7d,
-    openTasks: p.open_tasks,
-    buildMode: p.build_mode,
-    publishedAt: p.published_at || p.bot_go_live_at,
-    createdAt: p.created_at,
   };
 }
 
@@ -51,7 +38,6 @@ export function DiscoveryPage({ T, bots, loading }: {
   T: Theme; bots: DiscoverBot[]; loading: boolean;
 }) {
   const t = useT();
-  const visibleBots = useMemo(() => bots, [bots]);
 
   return (
     <div style={{
@@ -86,11 +72,11 @@ export function DiscoveryPage({ T, bots, loading }: {
       </header>
 
       {loading && <LoadingRows T={T} />}
-      {!loading && visibleBots.length === 0 && <EmptyDiscovery T={T} />}
+      {!loading && bots.length === 0 && <EmptyDiscovery T={T} />}
 
-      {!loading && visibleBots.length > 0 && (
+      {!loading && bots.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {visibleBots.map(bot => (
+          {bots.map(bot => (
             <DiscoveryCard key={bot.id} T={T} bot={bot} />
           ))}
         </div>
@@ -140,7 +126,7 @@ function DiscoveryCard({ T, bot }: { T: Theme; bot: DiscoverBot }) {
             color: T.text,
             letterSpacing: -0.2,
           }}>{bot.name}</span>
-          <Pill T={T} tone="green"><Dot color="#2f8f6f" size={6} /> {t('LIVE', 'В СЕТИ')}</Pill>
+          <Pill T={T} tone="green"><Dot color="#2f8f6f" size={6} /> {t('LIVE', 'В ЭФИРЕ')}</Pill>
         </div>
 
         <div style={{

@@ -1,9 +1,8 @@
-// Prompt — onboarding hero: "Describe the bot you want" (Bold 1c).
-// Top row: AGNTDEV brand lockup left, "My bots" link right. Eyebrow pill,
-// two-tone hero, prompt card with a terracotta send button, and idea chips.
+// Prompt — the Home hero: "Describe the bot you want" (Bold 1c).
+// Top row: AGNTDEV brand lockup left, language toggle right. Eyebrow pill,
+// two-tone hero, prompt card with a terracotta "Build it" button, idea chips.
 import { useEffect, useRef } from 'react';
 import { Theme, btnReset } from '../theme';
-import { TgUser } from '../telegram';
 import { TGIcon, Spinner, Wordmark } from '../ui';
 import { useLang, useT, tr } from '../i18n';
 
@@ -11,9 +10,10 @@ import { useLang, useT, tr } from '../i18n';
 // brief into the prompt box. That brief is what gets sent verbatim as the
 // first message to the builder AI — a fuller brief means a more
 // production-ready bot and fewer clarifying questions.
-export type IdeaExample = { title: [string, string]; blurb: [string, string]; prompt: [string, string] };
+type IdeaExample = { title: [string, string]; blurb: [string, string]; prompt: [string, string] };
 
-export const IDEA_EXAMPLES: IdeaExample[] = [
+// The six chips the prototype's row shows — nothing shipped here goes unrendered.
+const IDEA_EXAMPLES: IdeaExample[] = [
   {
     title: ['Crypto price alerts', 'Оповещения о ценах на крипту'],
     blurb: [
@@ -80,72 +80,6 @@ export const IDEA_EXAMPLES: IdeaExample[] = [
       'Хочу телеграм-бота, который ведёт мой групповой чат — встречает новых участников и не пускает спам. Когда кто-то заходит, поприветствуй его по имени коротким сообщением с правилами и попроси нажать кнопку, чтобы подтвердить, что он человек, прежде чем он сможет писать; если он не пройдёт проверку за несколько минут, тихо удали его, чтобы боты никогда не попадали внутрь. Следи за явным спамом — ссылки от совсем новых аккаунтов, повторяющиеся одинаковые сообщения, флуд — и предупреждай, отправляй в мьют или удаляй в зависимости от порогов, которые я задам. Дай админам простые команды, чтобы предупредить, замьютить, кикнуть или забанить, и веди краткий журнал действий, чтобы было видно, кто что сделал. Дай мне менять приветствие и правила, выбирать, какие действия автоматические, и помечать доверенных пользователей как исключения. Никогда не применяй меры к админам и закреплённым сообщениям, объясняй каждое автоматическое действие, чтобы оно не выглядело произвольным, и дай мне обзор входов, проверок и удалений за период.',
     ],
   },
-  {
-    title: ['Appointment booking', 'Запись на приём'],
-    blurb: [
-      'Pick a service & slot · confirmations · reminders · reschedule',
-      'Выбор услуги и слота · подтверждения · напоминания · перенос',
-    ],
-    prompt: [
-      'I want a Telegram bot that books appointments for my one-person business — like a barber, tutor, or coach. A client taps to start, picks the service they want (each with its own length, and a price to show if I set one), then a day and an open time; the bot only offers slots that fit my working hours and aren\'t already taken, so it can never double-book me. It confirms instantly with the details and a reference code, sends a reminder the day before and an hour before, and lets clients reschedule or cancel from buttons. I configure my services, weekly availability, breaks, and days off, and I can block out time when something comes up. Give me an owner view of today\'s and the week\'s bookings, and ping me the moment a booking comes in or someone cancels. Handle odd input gracefully, keep client contact details private, and stay warm and clear throughout. No online payment needed — we settle in person.',
-      'Хочу телеграм-бота, который записывает клиентов на приём в моём деле, где я работаю один — например, барбер, репетитор или коуч. Клиент нажимает «начать», выбирает нужную услугу (у каждой своя длительность и цена, если я её укажу), затем день и свободное время; бот предлагает только слоты, которые вписываются в мои рабочие часы и ещё не заняты, так что двойной записи не будет. Он мгновенно подтверждает запись с деталями и кодом брони, шлёт напоминание за день и за час, и даёт клиентам переносить или отменять запись кнопками. Я настраиваю свои услуги, доступность по неделе, перерывы и выходные и могу заблокировать время, когда что-то случается. Дай мне вид владельца с записями на сегодня и на неделю и пингуй меня в тот же момент, как приходит запись или кто-то отменяет. Аккуратно обрабатывай странный ввод, держи контактные данные клиентов приватными и будь тёплым и понятным на всех шагах. Онлайн-оплата не нужна — рассчитываемся лично.',
-    ],
-  },
-  {
-    title: ['Async team standup', 'Асинхронный стендап команды'],
-    blurb: [
-      'Daily check-ins · channel digest · nudges · blocker history',
-      'Ежедневные отметки · дайджест в канал · напоминания · история блокеров',
-    ],
-    prompt: [
-      'I want a Telegram bot that runs an async daily standup for my team so we can skip the meeting. Each workday at a time I set, the bot privately messages everyone three questions — what you did yesterday, what you\'re doing today, and anything blocking you — and collects the answers. Once people respond or a cutoff passes, it posts a clean digest to our team channel grouped by person, clearly listing anyone still pending and anything flagged as a blocker so nothing slips. Nudge people who haven\'t answered, but only once, and let anyone skip a day or mark themselves off. I can set the schedule, the questions, the team, the channel, and which days to run. Respect each person\'s time zone, never post a half-finished digest, and keep answers tidy. Give me a simple history so we can look back at past standups and spot blockers that keep coming up.',
-      'Хочу телеграм-бота, который проводит асинхронный ежедневный стендап для моей команды, чтобы обойтись без встречи. Каждый рабочий день во время, которое я задам, бот пишет каждому лично три вопроса — что ты сделал вчера, что делаешь сегодня и что тебя блокирует — и собирает ответы. Когда люди ответили или прошёл дедлайн, бот публикует аккуратный дайджест в наш командный канал, сгруппированный по людям, чётко перечисляя тех, кто ещё не ответил, и всё, что помечено как блокер, чтобы ничего не потерялось. Напоминай тем, кто не ответил, но только один раз, и дай любому пропустить день или отметиться отсутствующим. Я могу задать расписание, вопросы, команду, канал и в какие дни запускать. Учитывай часовой пояс каждого, никогда не публикуй недособранный дайджест и держи ответы опрятными. Дай мне простую историю, чтобы можно было заглянуть в прошлые стендапы и заметить блокеры, которые всплывают снова и снова.',
-    ],
-  },
-  {
-    title: ['Event RSVP', 'Сбор откликов на мероприятие'],
-    blurb: [
-      'Invites · yes/no/maybe · headcount · waitlist · reminders',
-      'Приглашения · да/нет/возможно · счётчик гостей · лист ожидания · напоминания',
-    ],
-    prompt: [
-      'I want a Telegram bot that handles RSVPs for events I organize, big or small. I create an event with a title, date and time, place, and an optional guest limit, and the bot gives me a shareable link or posts it in a group where people RSVP with one tap — going, not going, or maybe — and can add a "+1" or a note. It keeps a live headcount, enforces the limit with a waitlist that auto-promotes people if someone drops out, and shows me the full guest list any time. Send reminders before the event to everyone who said yes, and let people change their answer up to a cutoff I set. I can edit the event, message all attendees at once, and close RSVPs when I\'m ready. Handle a full event gracefully, never lose a response, keep the guest list visible only to me unless I share it, and confirm every RSVP so people know it registered.',
-      'Хочу телеграм-бота, который собирает отклики на мероприятия, которые я организую, большие и маленькие. Я создаю мероприятие с названием, датой и временем, местом и необязательным лимитом гостей, а бот даёт мне ссылку, которой можно поделиться, или публикует пост в группе, где люди откликаются одним нажатием — иду, не иду или возможно — и могут добавить «+1» или комментарий. Он ведёт живой счётчик гостей, соблюдает лимит с помощью листа ожидания, который автоматически поднимает людей, если кто-то отказывается, и в любой момент показывает мне полный список гостей. Шли напоминания перед мероприятием всем, кто ответил «иду», и дай людям менять ответ до дедлайна, который я задам. Я могу редактировать мероприятие, писать всем участникам сразу и закрыть приём откликов, когда буду готов. Аккуратно обрабатывай ситуацию, когда мест не осталось, никогда не теряй отклик, держи список гостей видимым только мне, пока я сам им не поделюсь, и подтверждай каждый отклик, чтобы люди знали, что он засчитан.',
-    ],
-  },
-  {
-    title: ['Personal budget tracker', 'Личный трекер бюджета'],
-    blurb: [
-      'Log spending · categories · monthly budgets · summaries',
-      'Учёт трат · категории · бюджеты на месяц · сводки',
-    ],
-    prompt: [
-      'I want a Telegram bot that helps me track my spending without a spreadsheet. I log an expense in seconds — just the amount and a category like food, transport, or rent, with an optional note — and the bot keeps a running total for the month. I can set a monthly budget overall and per category, and it warns me when I\'m getting close or have gone over, so there are no surprises. Offer my common categories as quick buttons, remember the ones I use most, and let me add, edit, or delete entries and create my own categories. Give me a clear summary any time — spent so far this month, broken down by category, and how each compares to its budget — plus an end-of-month recap. Pick a currency once and stick to it, total everything correctly to the cent, and roll cleanly into a new month. Keep all my data private to me, and make fixing a typo\'d amount or a wrong category effortless.',
-      'Хочу телеграм-бота, который помогает мне вести учёт трат без таблиц. Я записываю трату за секунды — просто сумму и категорию вроде еды, транспорта или аренды, с необязательным комментарием — а бот ведёт текущий итог за месяц. Я могу задать месячный бюджет в целом и по каждой категории, и бот предупреждает, когда я приближаюсь к лимиту или превысил его, чтобы не было сюрпризов. Предлагай мои частые категории быстрыми кнопками, запоминай те, что я использую чаще всего, и дай мне добавлять, редактировать и удалять записи и создавать свои категории. Давай мне понятную сводку в любой момент — сколько потрачено с начала месяца, с разбивкой по категориям и в сравнении каждой с её бюджетом — плюс итог в конце месяца. Валюта выбирается один раз и дальше не меняется, всё считается верно до копейки, и переход в новый месяц происходит чисто. Держи все мои данные приватными и сделай так, чтобы исправить опечатку в сумме или неверную категорию было проще простого.',
-    ],
-  },
-  {
-    title: ['Group trivia game', 'Викторина для группы'],
-    blurb: [
-      'Live quizzes · timed questions · scores · leaderboard',
-      'Живые викторины · вопросы на время · очки · таблица лидеров',
-    ],
-    prompt: [
-      'I want a Telegram bot that runs fun trivia games in my group chat. Anyone can start a round, pick a category and how many questions, and the bot posts each question with multiple-choice buttons and a countdown; everyone answers at once, faster correct answers score more, and when time\'s up it reveals the right answer and who got it. It keeps scores through the round, shows a live scoreboard between questions, and crowns a winner at the end. Stop people from answering twice, break ties fairly, and keep the pace snappy so the chat stays lively. Ship with a good built-in question set across several categories, and let me add my own questions and answers for custom games. Track an all-time group leaderboard so there are bragging rights over time. If someone abandons a game, time it out cleanly, and make sure two games can\'t run in the same chat at once.',
-      'Хочу телеграм-бота, который проводит весёлые викторины в моём групповом чате. Любой может начать раунд, выбрать категорию и число вопросов, а бот публикует каждый вопрос с вариантами-кнопками и обратным отсчётом; все отвечают одновременно, за более быстрый правильный ответ даётся больше очков, а когда время вышло, бот показывает верный ответ и кто его угадал. Он ведёт счёт в течение раунда, показывает живую таблицу очков между вопросами и объявляет победителя в конце. Не давай отвечать дважды, честно разрешай ничьи и держи бодрый темп, чтобы чат оставался живым. Пусть в комплекте будет хороший встроенный набор вопросов по нескольким категориям, и дай мне добавлять свои вопросы и ответы для собственных игр. Веди общую таблицу лидеров группы за всё время, чтобы было чем похвастаться. Если кто-то бросает игру, аккуратно закрывай её по таймауту и следи, чтобы две игры не шли в одном чате одновременно.',
-    ],
-  },
-  {
-    title: ['Support & FAQ desk', 'Поддержка и ответы на частые вопросы'],
-    blurb: [
-      'Instant FAQ answers · human handoff · tickets · hours',
-      'Мгновенные ответы из FAQ · передача человеку · тикеты · часы работы',
-    ],
-    prompt: [
-      'I want a Telegram bot that handles first-line customer support for my product. It greets people, offers the most common questions as tappable buttons, and answers from a FAQ I manage — clear, friendly replies with follow-up suggestions so people can self-serve. When the bot can\'t help or the customer asks for a person, it opens a ticket: collects the details, gives the customer a reference number, and notifies me or my team so we can reply, with the conversation kept tied to that ticket. I can manage the FAQ entries, set business hours (and a polite "we\'re offline, we\'ll get back to you" message outside them), and see open tickets and their status. Make sure nothing falls through the cracks — every unanswered question becomes a ticket — keep each customer\'s conversation private, and confirm when a ticket is opened or resolved. Give me an owner view of the most common questions and ticket volume so I can spot what to fix or add to the FAQ.',
-      'Хочу телеграм-бота, который берёт на себя первую линию поддержки клиентов моего продукта. Он приветствует людей, предлагает самые частые вопросы кнопками и отвечает из FAQ, которым я управляю — понятными дружелюбными ответами с подсказками для дальнейших шагов, чтобы люди могли разобраться сами. Когда бот не может помочь или клиент просит человека, он заводит тикет: собирает детали, даёт клиенту номер обращения и уведомляет меня или мою команду, чтобы мы ответили, причём переписка остаётся привязанной к этому тикету. Я могу управлять записями FAQ, задавать часы работы (и вежливое сообщение «мы сейчас не в сети, мы вам ответим» вне них) и видеть открытые тикеты и их статусы. Проследи, чтобы ничего не терялось — каждый вопрос без ответа превращается в тикет — держи переписку каждого клиента приватной и подтверждай, когда тикет открыт или решён. Дай мне вид владельца с самыми частыми вопросами и объёмом тикетов, чтобы я видел, что стоит починить или добавить в FAQ.',
-    ],
-  },
 ];
 
 function autoGrow(el: HTMLTextAreaElement | null) {
@@ -158,11 +92,11 @@ function autoGrow(el: HTMLTextAreaElement | null) {
   el.style.height = Math.min(Math.max(92, el.scrollHeight), 260) + 'px';
 }
 
-export type StartBtn = { label: string; disabled?: boolean; busy?: boolean; onClick?: () => void };
+type StartBtn = { label: string; disabled?: boolean; busy?: boolean; onClick?: () => void };
 
-export function PromptScreen({ T, idea, setIdea, changed, error, startBtn }: {
-  T: Theme; idea: string; setIdea: (v: string) => void; changed: boolean;
-  user?: TgUser | null; onToggleTheme?: () => void; error?: string | null;
+export function PromptScreen({ T, idea, setIdea, error, startBtn }: {
+  T: Theme; idea: string; setIdea: (v: string) => void;
+  error?: string | null;
   startBtn?: StartBtn | null;
 }) {
   const t = useT();
@@ -171,29 +105,17 @@ export function PromptScreen({ T, idea, setIdea, changed, error, startBtn }: {
   useEffect(() => { autoGrow(taRef.current); }, [idea]);
   // A fixed set of starter ideas shown as wrapped chips (each still carries a
   // full brief in `.prompt`). No shuffle — matches the prototype's chip row.
-  const chips = IDEA_EXAMPLES.slice(0, 6);
+  const chips = IDEA_EXAMPLES;
   const canStart = !!idea.trim() && !!startBtn && !startBtn.disabled;
   return (
-    <div style={{ padding: '16px 22px 24px', display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+    <div style={{ padding: '16px 22px 0', display: 'flex', flexDirection: 'column' }}>
       {/* brand lockup · language toggle */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
         <Wordmark T={T} size={30} />
-        <button onClick={() => setLang(lang === 'ru' ? 'en' : 'ru')} aria-label="Language" style={{
+        <button onClick={() => setLang(lang === 'ru' ? 'en' : 'ru')} aria-label={t('Language', 'Язык')} style={{
           ...btnReset, fontFamily: T.font, fontSize: 13, fontWeight: 700, letterSpacing: 0.3, color: T.hint,
         }}>{lang === 'ru' ? 'RU' : 'EN'}</button>
       </div>
-
-      {changed && (
-        <div style={{
-          display: 'flex', gap: 10, alignItems: 'flex-start', padding: '11px 13px', borderRadius: 14, marginBottom: 16,
-          background: T.accentSoft, border: `1px solid ${T.accentBorder}`,
-        }}>
-          <TGIcon name="refresh" size={17} color={T.accent} stroke={2} />
-          <span style={{ fontFamily: T.font, fontSize: 13.5, color: T.text, lineHeight: '18px' }}>
-            {t("Edit your idea below — I'll rebuild and re-test from here.", 'Измените описание ниже — я пересоберу и заново протестирую.')}
-          </span>
-        </div>
-      )}
 
       {/* eyebrow */}
       <div style={{
@@ -213,8 +135,8 @@ export function PromptScreen({ T, idea, setIdea, changed, error, startBtn }: {
           : <>Describe the bot <span style={{ color: T.accent }}>you want</span></>}
       </div>
       <div style={{ fontFamily: T.font, fontSize: 15.5, fontWeight: 500, color: T.sub, marginTop: 12, lineHeight: '22px' }}>
-        {t('Answer a few questions and we build a real Telegram bot and put it live — usually in a couple of minutes. No coding.',
-           'Ответьте на пару вопросов — и мы соберём настоящего Telegram-бота и запустим его, обычно за пару минут. Без кода.')}
+        {t('Describe it, tap Build it, then create your bot with one tap — it’s live. Refine it by chatting. No coding.',
+           'Опишите бота, нажмите «Собрать», затем создайте бота одним нажатием — и он в эфире. Дорабатывайте в переписке. Без кода.')}
       </div>
 
       {/* prompt card with send button */}
@@ -235,17 +157,18 @@ export function PromptScreen({ T, idea, setIdea, changed, error, startBtn }: {
           <button
             onClick={canStart && !startBtn?.busy ? startBtn!.onClick : undefined}
             disabled={!canStart}
-            aria-label={startBtn?.label || 'Start'}
             style={{
-              ...btnReset, width: 48, height: 48, borderRadius: 14,
+              ...btnReset, height: 46, padding: '0 16px 0 18px', borderRadius: 14,
               background: canStart ? T.accent : T.nestedBg, color: canStart ? T.accentText : T.hint,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              fontFamily: T.font, fontSize: 15, fontWeight: 700, letterSpacing: -0.2,
               boxShadow: canStart ? T.ctaShadow : 'none', transition: 'background .2s',
               cursor: canStart ? 'pointer' : 'default',
             }}>
+            {startBtn?.label || t('Build it', 'Собрать')}
             {startBtn?.busy
-              ? <Spinner color={T.accentText} size={20} />
-              : <TGIcon name="arrowRight" size={22} color={canStart ? T.accentText : T.hint} stroke={2.4} />}
+              ? <Spinner color={T.accentText} size={18} />
+              : <TGIcon name="arrowRight" size={20} color={canStart ? T.accentText : T.hint} stroke={2.4} />}
           </button>
         </div>
       </div>

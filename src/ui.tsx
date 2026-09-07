@@ -6,52 +6,46 @@ import { haptic } from './telegram';
 import { useT } from './i18n';
 
 // ── Icons (simple geometric strokes only) ─────────────────────
+// One module-level table of path builders, not a per-render record of ~30
+// React elements: TGIcon is drawn at dozens of call sites on every tick.
+type IconStroke = { fill: string; stroke: string; strokeWidth: number; strokeLinecap: 'round'; strokeLinejoin: 'round' };
+const ICONS: Record<string, (p: IconStroke, color: string) => React.ReactNode> = {
+  back: p => <path d="M14 5l-7 7 7 7" {...p} />,
+  close: p => <path d="M6 6l12 12M18 6L6 18" {...p} />,
+  dots: (_p, color) => <g fill={color} stroke="none"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></g>,
+  chevDown: p => <path d="M6 9l6 6 6-6" {...p} />,
+  chevRight: p => <path d="M9 6l6 6-6 6" {...p} />,
+  check: p => <path d="M5 12.5l4.5 4.5L19 6.5" {...p} />,
+  plus: p => <path d="M12 5v14M5 12h14" {...p} />,
+  arrowUp: p => <path d="M12 19V6M6 11l6-6 6 6" {...p} />,
+  arrowRight: p => <path d="M5 12h14M13 6l6 6-6 6" {...p} />,
+  code: p => <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" {...p} />,
+  server: p => <g {...p}><rect x="4" y="4" width="16" height="6.5" rx="2" /><rect x="4" y="13.5" width="16" height="6.5" rx="2" /><path d="M8 7.25h0M8 16.75h0" /></g>,
+  beaker: p => <path d="M9 3h6M10 3v6l-4.5 8.5A2 2 0 007.3 21h9.4a2 2 0 001.8-3L14 9V3" {...p} />,
+  spark: (_p, color) => <path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17l-1.9-5.1L4.5 10l5.6-1.4L12 3z" fill={color} stroke="none" />,
+  bolt: (_p, color) => <path d="M13 3L5 13h6l-1 8 8-10h-6l1-8z" fill={color} stroke="none" />,
+  refresh: p => <path d="M4 11a8 8 0 0114-5l2 2M20 13a8 8 0 01-14 5l-2-2M18 4v4h-4M6 20v-4h4" {...p} />,
+  user: p => <g {...p}><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0113 0" /></g>,
+  shield: p => <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" {...p} />,
+  lock: p => <g {...p}><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.5" /><path d="M8 10.5V8a4 4 0 018 0v2.5" /></g>,
+  trash: p => <g {...p}><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12" /><path d="M10 11v6M14 11v6" /></g>,
+  pin: p => <g {...p}><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5z" /><path d="M12 14v6" /></g>,
+  pinOff: p => <g {...p}><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5z" /><path d="M12 14v6" /><path d="M4 4l16 16" /></g>,
+  compass: p => <g {...p}><circle cx="12" cy="12" r="8.5" /><path d="M15.5 8.5l-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2z" /></g>,
+  open: p => <g {...p}><path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M18 13.5V18a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2h4.5" /></g>,
+  chat: p => <path d="M5 5h14a1 1 0 011 1v9a1 1 0 01-1 1h-8.5L6 19.5V16H5a1 1 0 01-1-1V6a1 1 0 011-1z" {...p} />,
+  send: p => <path d="M5 12l15-7-7 15-2.5-5.5L5 12z" {...p} />,
+  pause: (_p, color) => <g fill={color} stroke="none"><rect x="7" y="5" width="3.4" height="14" rx="1.2" /><rect x="13.6" y="5" width="3.4" height="14" rx="1.2" /></g>,
+  play: (_p, color) => <path d="M8 5.5v13l11-6.5-11-6.5z" fill={color} stroke="none" />,
+};
+
 export function TGIcon({ name, size = 22, color = 'currentColor', stroke = 2 }: {
   name: string; size?: number; color?: string; stroke?: number;
 }) {
-  const p = { fill: 'none', stroke: color, strokeWidth: stroke, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
-  const paths: Record<string, React.ReactNode> = {
-    back: <path d="M14 5l-7 7 7 7" {...p} />,
-    close: <path d="M6 6l12 12M18 6L6 18" {...p} />,
-    dots: <g fill={color} stroke="none"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></g>,
-    chevDown: <path d="M6 9l6 6 6-6" {...p} />,
-    chevRight: <path d="M9 6l6 6-6 6" {...p} />,
-    check: <path d="M5 12.5l4.5 4.5L19 6.5" {...p} />,
-    plus: <path d="M12 5v14M5 12h14" {...p} />,
-    copy: <g {...p}><rect x="8" y="8" width="11" height="11" rx="2.5" /><path d="M5 15.5V6a2 2 0 012-2h8.5" /></g>,
-    arrowUp: <path d="M12 19V6M6 11l6-6 6 6" {...p} />,
-    arrowRight: <path d="M5 12h14M13 6l6 6-6 6" {...p} />,
-    code: <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" {...p} />,
-    server: <g {...p}><rect x="4" y="4" width="16" height="6.5" rx="2" /><rect x="4" y="13.5" width="16" height="6.5" rx="2" /><path d="M8 7.25h0M8 16.75h0" /></g>,
-    beaker: <path d="M9 3h6M10 3v6l-4.5 8.5A2 2 0 007.3 21h9.4a2 2 0 001.8-3L14 9V3" {...p} />,
-    spark: <path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17l-1.9-5.1L4.5 10l5.6-1.4L12 3z" fill={color} stroke="none" />,
-    bolt: <path d="M13 3L5 13h6l-1 8 8-10h-6l1-8z" fill={color} stroke="none" />,
-    link: <g {...p}><path d="M9.5 14.5l5-5" /><path d="M8 12l-2 2a3 3 0 104 4l2-2" /><path d="M16 12l2-2a3 3 0 10-4-4l-2 2" /></g>,
-    refresh: <path d="M4 11a8 8 0 0114-5l2 2M20 13a8 8 0 01-14 5l-2-2M18 4v4h-4M6 20v-4h4" {...p} />,
-    sun: <g {...p}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" /></g>,
-    moon: <path d="M20 14.5A8 8 0 019.5 4a7 7 0 100 16 8 8 0 0010.5-5.5z" {...p} />,
-    user: <g {...p}><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0113 0" /></g>,
-    shield: <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" {...p} />,
-    lock: <g {...p}><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.5" /><path d="M8 10.5V8a4 4 0 018 0v2.5" /></g>,
-    trash: <g {...p}><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12" /><path d="M10 11v6M14 11v6" /></g>,
-    pin: <g {...p}><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5z" /><path d="M12 14v6" /></g>,
-    pinOff: <g {...p}><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5z" /><path d="M12 14v6" /><path d="M4 4l16 16" /></g>,
-    clock: <g {...p}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></g>,
-    compass: <g {...p}><circle cx="12" cy="12" r="8.5" /><path d="M15.5 8.5l-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2z" /></g>,
-    search: <g {...p}><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4" /></g>,
-    open: <g {...p}><path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M18 13.5V18a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2h4.5" /></g>,
-    star: <path d="M12 3.5l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 17l-5.3 2.9 1.2-6L3.4 9.8l6-.7L12 3.5z" fill={color} stroke="none" />,
-    chat: <path d="M5 5h14a1 1 0 011 1v9a1 1 0 01-1 1h-8.5L6 19.5V16H5a1 1 0 01-1-1V6a1 1 0 011-1z" {...p} />,
-    send: <path d="M5 12l15-7-7 15-2.5-5.5L5 12z" {...p} />,
-    wallet: <g {...p}><rect x="3" y="6" width="18" height="13" rx="3" /><path d="M16 12.5h2M3 9.5h18" /></g>,
-    pause: <g fill={color} stroke="none"><rect x="7" y="5" width="3.4" height="14" rx="1.2" /><rect x="13.6" y="5" width="3.4" height="14" rx="1.2" /></g>,
-    play: <path d="M8 5.5v13l11-6.5-11-6.5z" fill={color} stroke="none" />,
-    cloud: <path d="M7.5 18.5a4 4 0 01-.4-7.98 5.2 5.2 0 0110.06-1.3A3.75 3.75 0 0117 18.5H7.5z" {...p} />,
-    folder: <path d="M4 7a2 2 0 012-2h3.2a2 2 0 011.5.7l1 1.3H18a2 2 0 012 2v7a2 2 0 01-2 2H6a2 2 0 01-2-2V7z" {...p} />,
-  };
+  const draw = ICONS[name];
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: 'block', flexShrink: 0 }}>
-      {paths[name]}
+      {draw ? draw({ fill: 'none', stroke: color, strokeWidth: stroke, strokeLinecap: 'round', strokeLinejoin: 'round' }, color) : null}
     </svg>
   );
 }
@@ -101,36 +95,8 @@ export function TGHeader({ T, title, subtitle, onBack }: {
           <div style={{ fontFamily: T.font, fontSize: 16, fontWeight: 700, color: T.text, lineHeight: '18px', letterSpacing: -0.3 }}>{title}</div>
           {subtitle && <div style={{ fontFamily: T.font, fontSize: 12.5, color: T.hint, lineHeight: '15px', marginTop: 1 }}>{subtitle}</div>}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', minWidth: 64, justifyContent: 'flex-end' }}>
-          <button style={{ ...btnReset, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.hint }}>
-            <TGIcon name="dots" size={22} color={T.hint} />
-          </button>
-        </div>
+        <div style={{ minWidth: 64 }} />
       </div>
-    </div>
-  );
-}
-
-// ── Telegram MainButton (pinned bottom) ───────────────────────
-export function MainButton({ T, label, onClick, disabled, busy, icon }: {
-  T: Theme; label: string; onClick?: () => void; disabled?: boolean; busy?: boolean; icon?: string;
-}) {
-  const bg = disabled ? T.nestedBg : T.accent;
-  const fg = disabled ? T.hint : T.accentText;
-  return (
-    <div style={{ padding: '10px 16px 14px', background: T.headerBg, borderTop: `1px solid ${T.sep}`, position: 'relative', zIndex: 5 }}>
-      <button onClick={disabled || busy ? undefined : onClick} style={{
-        ...btnReset, width: '100%', height: 50, borderRadius: 15,
-        backgroundColor: bg, color: fg, fontFamily: T.font, fontSize: 16, fontWeight: 700,
-        letterSpacing: -0.2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
-        cursor: disabled ? 'default' : 'pointer',
-        boxShadow: disabled ? 'none' : T.ctaShadow,
-        transition: 'transform .12s ease',
-      }}>
-        {busy && <Spinner color={fg} />}
-        {icon && !busy && <TGIcon name={icon} size={18} color={fg} stroke={2} />}
-        {label}
-      </button>
     </div>
   );
 }
@@ -141,26 +107,6 @@ export function Spinner({ color = '#fff', size = 17 }: { color?: string; size?: 
       <circle cx="12" cy="12" r="9" fill="none" stroke={color} strokeOpacity="0.3" strokeWidth="3" />
       <path d="M12 3a9 9 0 019 9" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" />
     </svg>
-  );
-}
-
-// ── Stage stepper (slim, top of content) ──────────────────────
-export function Stepper({ T, steps, current }: { T: Theme; steps: number[]; current: number }) {
-  return (
-    <div style={{ display: 'flex', gap: 6, padding: '12px 16px 4px' }}>
-      {steps.map((_, i) => {
-        const done = i < current, active = i === current;
-        return (
-          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{
-              height: 3, borderRadius: 2,
-              background: done || active ? T.accent : T.sepStrong,
-              opacity: active ? 1 : (done ? 0.55 : 1), transition: 'background .3s',
-            }} />
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
@@ -201,22 +147,6 @@ export function Dot({ color, size = 7, pulse }: { color: string; size?: number; 
     width: size, height: size, borderRadius: 999, background: color, display: 'inline-block', flexShrink: 0,
     animation: pulse ? 'tgpulse 1.6s ease-in-out infinite' : 'none',
   }} />;
-}
-
-// ── Selectable chip ───────────────────────────────────────────
-export function Chip({ T, children, selected, onClick, icon }: {
-  T: Theme; children: React.ReactNode; selected?: boolean; onClick?: () => void; icon?: React.ReactNode;
-}) {
-  return (
-    <button onClick={onClick} style={{
-      ...btnReset, display: 'inline-flex', alignItems: 'center', gap: 7, height: 38, padding: '0 15px',
-      borderRadius: 11, fontFamily: T.font, fontSize: 14.5, fontWeight: 600,
-      background: selected ? T.accentSoft : T.nestedBg,
-      color: selected ? T.accent : T.text,
-      border: `1.5px solid ${selected ? T.accentBorder : T.sep}`,
-      cursor: 'pointer', transition: 'all .15s',
-    }}>{icon}{children}</button>
-  );
 }
 
 // ── Chat bubble ───────────────────────────────────────────────
@@ -296,8 +226,8 @@ export function Sparkline({ values, color, width = 92, height = 34 }: {
   );
 }
 
-// ── bottom tab bar ────────────────────────────────────────────
-export type Tab = 'build' | 'discover' | 'manage';
+// ── bottom tab bar — Home · Discover ──────────────────────────
+export type Tab = 'home' | 'discover';
 
 export function TabBar({ T, tab, onTab }: { T: Theme; tab: Tab; onTab: (t: Tab) => void }) {
   const t = useT();
@@ -325,21 +255,12 @@ export function TabBar({ T, tab, onTab }: { T: Theme; tab: Tab; onTab: (t: Tab) 
       position: 'relative', zIndex: 20,
     }}>
       <div style={{
-        display: 'flex', alignItems: 'center', height: 66,
+        display: 'flex', alignItems: 'center', height: 62,
         background: hexA('#FBF8EF', 0.92), backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
         border: `1px solid ${T.sep}`, borderRadius: 22, boxShadow: T.tabShadow,
         padding: '0 8px', position: 'relative',
       }}>
-        {side('manage', 'folder', t('Bots', 'Боты'))}
-        {/* center — terracotta ＋ (new bot / onboarding), centered in the bar */}
-        <button onClick={() => onTab('build')} style={{
-          ...btnReset, width: 52, height: 52, flexShrink: 0,
-          borderRadius: 16, background: T.accent, color: T.accentText,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: T.ctaShadow,
-        }}>
-          <TGIcon name="plus" size={26} color={T.accentText} stroke={2.6} />
-        </button>
+        {side('home', 'bolt', t('Home', 'Главная'))}
         {side('discover', 'compass', t('Discover', 'Каталог'))}
       </div>
     </div>
@@ -350,7 +271,7 @@ export function TabBar({ T, tab, onTab }: { T: Theme; tab: Tab; onTab: (t: Tab) 
 export function BotTile({ T, name, tone, src, size = 38, radius = 12, fontSize }: {
   T: Theme; name: string; tone: string; src?: string | null; size?: number; radius?: number; fontSize?: number;
 }) {
-  const c = tile(tone, T.dark);
+  const c = tile(tone);
   // the generated bot avatar (the same image we set on the Telegram bot) when we
   // have one; the name monogram stays rendered underneath as the fallback, so a
   // missing or broken image (onError) reveals it rather than a broken-image icon.
@@ -384,31 +305,6 @@ export function Wordmark({ T, size = 30 }: { T: Theme; size?: number }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <Mark T={T} size={size} radius={Math.round(size * 0.3)} />
       <span style={{ fontFamily: T.font, fontWeight: 800, fontSize: size * 0.62, letterSpacing: -0.4, color: T.text }}>AGNTDEV</span>
-    </div>
-  );
-}
-
-// ── Bold 1c: circular build-progress ring ─────────────────────
-// 172px conic ring on a dark-green disc; large percent numeral.
-export function ProgressRing({ T, value, size = 172, label, color }: {
-  T: Theme; value: number; size?: number; label?: string; color?: string;
-}) {
-  const pct = Math.max(0, Math.min(100, Math.round(value)));
-  const arc = color || T.accent;
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%', margin: '0 auto', position: 'relative',
-      background: `conic-gradient(${arc} ${pct}%, ${hexA(T.text, 0.12)} 0)`,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      boxShadow: T.heroShadow,
-    }}>
-      <div style={{
-        position: 'absolute', inset: 13, borderRadius: '50%', background: T.text,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-      }}>
-        <span style={{ fontFamily: T.font, fontWeight: 700, fontSize: 32, letterSpacing: -1, color: T.accentText }}>{pct}%</span>
-        {label && <span style={{ fontFamily: T.font, fontSize: 12, fontWeight: 500, color: hexA(T.accentText, 0.7) }}>{label}</span>}
-      </div>
     </div>
   );
 }
@@ -451,8 +347,11 @@ export function EventCard({ T, palette = 'neutral', icon, title, sub, action, on
 //   multi:            chips toggle and a confirm button sends them comma-joined.
 // Either way these are only SHORTCUTS — the composer stays live below, so the
 // owner can always type a different answer instead of using them.
-export function QuickReplies({ T, options, onPick, multi = false }: {
+export function QuickReplies({ T, options, onPick, multi = false, display }: {
   T: Theme; options: string[]; onPick: (label: string) => void; multi?: boolean;
+  // what a chip SHOWS, when that differs from what it sends (the env chips are
+  // server constants matched by exact text — shown translated, sent verbatim)
+  display?: (label: string) => string;
 }) {
   const t = useT();
   const [picked, setPicked] = React.useState<string[]>([]);
@@ -468,7 +367,7 @@ export function QuickReplies({ T, options, onPick, multi = false }: {
       transition: 'transform .1s ease, background .15s ease, color .15s ease',
     }}>
       {multi && <TGIcon name={on ? 'check' : 'plus'} size={15} color={on ? T.accentText : T.accent} stroke={2.4} />}
-      {o}
+      {display ? display(o) : o}
     </button>
   );
 
@@ -661,22 +560,31 @@ export function SwipeRow({
   );
 }
 
-// ── Confirm bottom-sheet ──────────────────────────────────────
-// A slide-up confirmation used by the swipe actions. Backdrop tap = cancel.
-// `open` is always mounted so the enter/exit are real CSS transitions; when
-// shut it sits invisible and non-interactive.
-export function ConfirmSheet({
-  T, open, icon, title, body, confirmLabel, cancelLabel, destructive, onConfirm, onCancel,
-}: {
-  T: Theme; open: boolean; icon: string; title: string; body?: string;
-  confirmLabel: string; cancelLabel: string; destructive?: boolean;
-  onConfirm: () => void; onCancel: () => void;
+// ── Switch (toggle) ───────────────────────────────────────────
+export function Switch({ T, on, onClick, busy }: { T: Theme; on: boolean; onClick: () => void; busy?: boolean }) {
+  return (
+    <button onClick={e => { e.stopPropagation(); if (!busy) onClick(); }} aria-pressed={on} style={{
+      ...btnReset, width: 46, height: 28, borderRadius: 999, flexShrink: 0, position: 'relative',
+      background: on ? T.accent : hexA(T.text, 0.16),
+      transition: 'background .2s', opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer',
+    }}>
+      <span style={{
+        position: 'absolute', top: 3, left: on ? 21 : 3, width: 22, height: 22, borderRadius: 999,
+        background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.25)', transition: 'left .2s',
+      }} />
+    </button>
+  );
+}
+
+// ── Bottom sheet ──────────────────────────────────────────────
+// A slide-up panel. Backdrop tap = close. Always mounted so the enter/exit
+// are real CSS transitions; when shut it sits invisible and non-interactive.
+export function Sheet({ T, open, onClose, children }: {
+  T: Theme; open: boolean; onClose: () => void; children: React.ReactNode;
 }) {
-  const accent = destructive ? DANGER : T.accent;
-  const accentSoft = destructive ? DANGER_SOFT : T.accentSoft;
   return (
     <div
-      onClick={onCancel}
+      onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
         background: hexA('#1a2a1e', open ? 0.42 : 0), backdropFilter: open ? 'blur(2px)' : 'none',
@@ -693,29 +601,73 @@ export function ConfirmSheet({
           transition: 'transform .3s cubic-bezier(.22,.61,.36,1)',
         }}>
         <div style={{ width: 38, height: 4, borderRadius: 999, background: T.sep, margin: '0 auto 15px' }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: accentSoft,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <TGIcon name={icon} size={21} color={accent} stroke={2} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: T.font, fontSize: 16.5, fontWeight: 700, color: T.text, letterSpacing: -0.2 }}>{title}</div>
-            {body && <div style={{ fontFamily: T.font, fontSize: 13, color: T.sub, lineHeight: '18px', marginTop: 2 }}>{body}</div>}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-          <button onClick={onCancel} style={{
-            ...btnReset, flex: 1, height: 46, borderRadius: 13, background: T.nestedBg,
-            color: T.text, fontFamily: T.font, fontSize: 14.5, fontWeight: 600,
-          }}>{cancelLabel}</button>
-          <button onClick={onConfirm} style={{
-            ...btnReset, flex: 1, height: 46, borderRadius: 13, background: accent,
-            color: '#fff', fontFamily: T.font, fontSize: 14.5, fontWeight: 700,
-          }}>{confirmLabel}</button>
-        </div>
+        {children}
       </div>
     </div>
+  );
+}
+
+// One tappable row inside a Sheet: icon tile · label + optional sub · trailing slot.
+export function SheetRow({ T, icon, label, sub, danger, busy, trailing, onClick }: {
+  T: Theme; icon: string; label: string; sub?: string; danger?: boolean; busy?: boolean;
+  trailing?: React.ReactNode; onClick?: () => void;
+}) {
+  const fg = danger ? DANGER : T.text;
+  return (
+    <div role="button" onClick={busy ? undefined : onClick} style={{
+      width: '100%', display: 'flex', alignItems: 'center', gap: 12, WebkitTapHighlightColor: 'transparent',
+      padding: '11px 4px', opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer',
+    }}>
+      <div style={{
+        width: 38, height: 38, borderRadius: 12, flexShrink: 0, background: danger ? DANGER_SOFT : T.nestedBg,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {busy ? <Spinner color={T.hint} size={16} /> : <TGIcon name={icon} size={19} color={danger ? DANGER : T.sub} stroke={2} />}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: T.font, fontSize: 15, fontWeight: 600, color: fg }}>{label}</div>
+        {sub && <div style={{ fontFamily: T.font, fontSize: 12.5, color: T.hint, marginTop: 1, lineHeight: '16px' }}>{sub}</div>}
+      </div>
+      {trailing}
+    </div>
+  );
+}
+
+// ── Confirm bottom-sheet ──────────────────────────────────────
+// A yes/no on top of Sheet, used by the swipe actions and destructive settings.
+export function ConfirmSheet({
+  T, open, icon, title, body, confirmLabel, cancelLabel, destructive, onConfirm, onCancel,
+}: {
+  T: Theme; open: boolean; icon: string; title: string; body?: string;
+  confirmLabel: string; cancelLabel: string; destructive?: boolean;
+  onConfirm: () => void; onCancel: () => void;
+}) {
+  const accent = destructive ? DANGER : T.accent;
+  const accentSoft = destructive ? DANGER_SOFT : T.accentSoft;
+  return (
+    <Sheet T={T} open={open} onClose={onCancel}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{
+          width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: accentSoft,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <TGIcon name={icon} size={21} color={accent} stroke={2} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: T.font, fontSize: 16.5, fontWeight: 700, color: T.text, letterSpacing: -0.2 }}>{title}</div>
+          {body && <div style={{ fontFamily: T.font, fontSize: 13, color: T.sub, lineHeight: '18px', marginTop: 2 }}>{body}</div>}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+        <button onClick={onCancel} style={{
+          ...btnReset, flex: 1, height: 46, borderRadius: 13, background: T.nestedBg,
+          color: T.text, fontFamily: T.font, fontSize: 14.5, fontWeight: 600,
+        }}>{cancelLabel}</button>
+        <button onClick={onConfirm} style={{
+          ...btnReset, flex: 1, height: 46, borderRadius: 13, background: accent,
+          color: '#fff', fontFamily: T.font, fontSize: 14.5, fontWeight: 700,
+        }}>{confirmLabel}</button>
+      </div>
+    </Sheet>
   );
 }
