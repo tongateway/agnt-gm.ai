@@ -51,12 +51,44 @@ function depth(r: Route): number {
   return r.name === 'home' || r.name === 'discover' ? 0 : r.name === 'bot' ? 1 : 2;
 }
 
+// In-app history: the hashes BEHIND the current entry, as this app pushed (or
+// watched the browser walk) them. Lets Back pop the real history entry when
+// the previous one IS the parent screen, instead of pushing the parent again
+// (Home → Bot → Back → Home → browser-Back landed on Bot).
+let behind: string[] = [];
+let current = location.hash || '#/';
+let pushing: string | null = null;  // hash a navigate() just pushed
+let replacing = false;              // a replaceState + synthetic hashchange
+
 export function navigate(r: Route, replace = false): void {
   const h = routeHash(r);
   if (location.hash === h) return;
-  if (replace) history.replaceState(null, '', h); else location.hash = h;
-  // replaceState fires no hashchange — nudge listeners by hand
-  if (replace) window.dispatchEvent(new HashChangeEvent('hashchange'));
+  if (replace) {
+    replacing = true;
+    history.replaceState(null, '', h);
+    // replaceState fires no hashchange — nudge listeners by hand
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    return;
+  }
+  pushing = h;
+  location.hash = h;
+}
+
+// Back to `parent`: a real history.back() when that is the entry behind us
+// (so the browser's own Back/Forward stays coherent), else a replace.
+export function goBack(parent: Route): void {
+  const h = routeHash(parent);
+  if (behind.length && behind[behind.length - 1] === h) { history.back(); return; }
+  navigate(parent, true);
+}
+
+function trackHashChange(): void {
+  const h = location.hash || '#/';
+  if (replacing) replacing = false;
+  else if (pushing === h) { behind.push(current); pushing = null; }
+  else if (behind.length && behind[behind.length - 1] === h) behind.pop(); // went back
+  else behind.push(current); // browser forward / manual edit — the old entry is behind us
+  current = h;
 }
 
 // Current route + the slide direction of the last change (+1 deeper, −1 back).
@@ -65,11 +97,14 @@ export function useHashRoute(): { route: Route; dir: number } {
   useEffect(() => {
     // normalise legacy hashes once so the address bar shows the canonical form
     const canon = routeHash(parseRoute(location.hash));
-    if (location.hash !== canon) history.replaceState(null, '', canon);
-    const onChange = () => setState(prev => {
-      const route = parseRoute(location.hash);
-      return { route, dir: depth(route) >= depth(prev.route) ? 1 : -1 };
-    });
+    if (location.hash !== canon) { history.replaceState(null, '', canon); current = canon; }
+    const onChange = () => {
+      trackHashChange();
+      setState(prev => {
+        const route = parseRoute(location.hash);
+        return { route, dir: depth(route) >= depth(prev.route) ? 1 : -1 };
+      });
+    };
     window.addEventListener('hashchange', onChange);
     return () => window.removeEventListener('hashchange', onChange);
   }, []);

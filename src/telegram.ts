@@ -1,14 +1,11 @@
-// telegram.ts — thin wrapper over the Telegram WebApp bridge.
-// The app renders its own header/MainButton (per the design), so this only
-// handles lifecycle, theme and viewport.
+// telegram.ts — thin wrapper over the Telegram WebApp bridge: lifecycle,
+// chrome colours, viewport insets, the native BackButton, haptics and links.
 
 interface SafeAreaInset { top: number; bottom: number; left: number; right: number }
 
 interface TelegramWebApp {
   ready(): void;
   expand(): void;
-  colorScheme: 'light' | 'dark';
-  themeParams: Record<string, string>;
   setHeaderColor?(color: string): void;
   setBackgroundColor?(color: string): void;
   onEvent(event: string, cb: () => void): void;
@@ -37,7 +34,7 @@ interface TelegramWebApp {
   exitFullscreen?(): void;
   safeAreaInset?: SafeAreaInset;        // device chrome (status bar / notch)
   contentSafeAreaInset?: SafeAreaInset; // Telegram's own controls over the content
-  initDataUnsafe?: { user?: { first_name?: string; last_name?: string; photo_url?: string; language_code?: string } };
+  initDataUnsafe?: { user?: { language_code?: string } };
   BackButton?: {
     show(): void;
     hide(): void;
@@ -73,14 +70,19 @@ function fullscreenCapable(): boolean {
 }
 
 // In fullscreen the native header is gone, so content sits under the status bar
-// and Telegram's floating close/menu controls. Expose the combined top inset as
-// a CSS variable the app root pads by; 0 whenever we're not in fullscreen.
+// and Telegram's floating close/menu controls, and the home indicator overlaps
+// the bottom edge (where the chat composer lives). Expose both insets as CSS
+// variables: the app root pads by --tg-fs-top, the composer by --tg-fs-bottom.
+// Outside fullscreen the variables are REMOVED (not zeroed) so a
+// `var(--tg-fs-bottom, env(safe-area-inset-bottom))` still reaches its fallback.
 function syncFullscreenInset(): void {
   if (!webApp) return;
-  const top = webApp.isFullscreen
-    ? (webApp.safeAreaInset?.top ?? 0) + (webApp.contentSafeAreaInset?.top ?? 0)
-    : 0;
-  document.documentElement.style.setProperty('--tg-fs-top', `${top}px`);
+  const root = document.documentElement.style;
+  if (!webApp.isFullscreen) { root.removeProperty('--tg-fs-top'); root.removeProperty('--tg-fs-bottom'); return; }
+  const top = (webApp.safeAreaInset?.top ?? 0) + (webApp.contentSafeAreaInset?.top ?? 0);
+  const bottom = (webApp.safeAreaInset?.bottom ?? 0) + (webApp.contentSafeAreaInset?.bottom ?? 0);
+  root.setProperty('--tg-fs-top', `${top}px`);
+  root.setProperty('--tg-fs-bottom', `${bottom}px`);
 }
 
 // Stop the sheet from following the finger. Telegram's default is that a
@@ -145,10 +147,6 @@ export function telegramInitData(): string | null {
   return insideTelegram ? webApp?.initData || null : null;
 }
 
-export function telegramUserName(): string | null {
-  return insideTelegram ? webApp?.initDataUnsafe?.user?.first_name || null : null;
-}
-
 // The user's Telegram language (e.g. 'ru', 'ru-RU', 'en') — drives the initial
 // interface locale. Null outside Telegram; the i18n layer then falls back to the
 // browser language. See src/i18n.tsx detectLang().
@@ -156,9 +154,23 @@ export function telegramLanguageCode(): string | null {
   return insideTelegram ? webApp?.initDataUnsafe?.user?.language_code || null : null;
 }
 
-export function openExternal(url: string): void {
-  if (webApp?.openLink) webApp.openLink(url);
-  else window.open(url, '_blank', 'noopener');
+// Telegram minimises the mini-app (rather than closing it) while the owner is
+// off in another chat — e.g. the t.me/newbot flow after "Create your bot".
+// `activated`/`deactivated` (Bot API 8.0+) say when; combined with the page's
+// own visibilityState this drives "stop polling while nobody is looking".
+export function onVisibility(cb: (visible: boolean) => void): () => void {
+  const fromDoc = () => cb(document.visibilityState !== 'hidden');
+  const on = () => cb(true);
+  const off = () => cb(false);
+  document.addEventListener('visibilitychange', fromDoc);
+  const wa = insideTelegram ? webApp : undefined;
+  wa?.onEvent('activated', on);
+  wa?.onEvent('deactivated', off);
+  return () => {
+    document.removeEventListener('visibilitychange', fromDoc);
+    wa?.offEvent('activated', on);
+    wa?.offEvent('deactivated', off);
+  };
 }
 
 // Native haptic feedback — the physical tick that makes a swipe feel real.

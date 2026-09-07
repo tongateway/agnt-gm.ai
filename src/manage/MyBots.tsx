@@ -1,7 +1,8 @@
-// MyBots — the owner's bot list on Home (GET /builder/projects?owner_agent_id=…)
+// MyBots — the owner's bot list on Home (GET /builder/agents/me/projects)
 // plus the chat Composer the Bot page pins at the bottom.
 import { Theme, btnReset, toneFor } from '../theme';
-import { Project } from '../api/client';
+import { Project, projectIsLive } from '../api/client';
+import { insideTelegram } from '../telegram';
 import { useT, useLang, tr, Lang } from '../i18n';
 import { TGIcon, Spinner, BotTile, Pill, Dot, SwipeRow, SwipeAction, DANGER } from '../ui';
 
@@ -11,20 +12,27 @@ export interface MyBot {
   handle: string;
   tone: string;
   avatarUrl?: string; // generated bot avatar (falls back to the name monogram)
-  status: string;     // 'live' once the bot answers users, else the raw project status
-  live: boolean;      // the bot is answering users (server truth: bot_is_live / go-live stamps)
+  status: string;     // list state: live | awaiting_bot | stopped | failed | raw project status
+  live: boolean;      // the bot is answering users (server truth: bot_is_live only)
   preview: string;
 }
 
-// Status chrome. Keyed by raw project status; VALUES are user-facing → translated.
+// Status chrome. Keyed by the list state; VALUES are user-facing → translated.
+// `live` (the raw project status) means "the build is running" here — a
+// whole_bot keeps status=live for its whole life; the phase says the rest.
 const STATUS_LABELS: Record<string, [string, string]> = {
   draft: ['Tell me what to build', 'Расскажите, что собрать'],
   validating: ['Getting started…', 'Начинаем…'],
   generating: ['Building…', 'Собираем…'],
   live: ['Building…', 'Собираем…'],
-  rejected: ["Can't build this one", 'Это не собрать'],
+  awaiting_bot: ['Ready — create bot', 'Готов — создайте бота'],
+  stopped: ['Not running', 'Не запущен'],
   failed: ['Needs a look', 'Нужно взглянуть'],
 };
+// pulsing gold = something is happening; plain gold = waiting on the owner;
+// neutral = stopped/needs a look
+const PULSING = new Set(['draft', 'validating', 'generating', 'live']);
+const NEUTRAL = new Set(['stopped', 'failed']);
 
 export function statusLabel(lang: Lang, status: string): string {
   const pair = STATUS_LABELS[status];
@@ -36,24 +44,35 @@ export function statusLabel(lang: Lang, status: string): string {
 export function isDraftSlug(slug?: string): boolean { return !slug || slug.startsWith('draft-'); }
 
 export function botFromProject(p: Project): MyBot {
-  // The bot answers users when its container runs (bot_is_live on the list
-  // DTO) or once the build converged and deployed (published / go-live stamps).
-  const live = !!p.bot_is_live || p.current_phase === 'published' || !!p.bot_go_live_at;
+  // Live = the container runs (bot_is_live), nothing else. A converged build
+  // with no Telegram bot is "create your bot"; one whose bot exists but isn't
+  // running is stopped (paused, or the container died); a build that gave up
+  // keeps status=live but current_phase=failed.
+  const live = projectIsLive(p);
+  const status = live ? 'live'
+    : p.current_phase === 'failed' ? 'failed'
+    : p.current_phase === 'published' ? (p.bot_username ? 'stopped' : 'awaiting_bot')
+    : p.status;
   return {
     id: p.id,
     name: isDraftSlug(p.slug) ? '' : p.name,
     handle: p.bot_username || '',
     tone: toneFor(p.slug),
     avatarUrl: p.bot_avatar_url || p.logo_url || p.preview_image_url || undefined,
-    status: live ? 'live' : p.status,
+    status,
     live,
     preview: p.short_description || p.goal_of_project || '',
   };
 }
 
 // ── the list ──────────────────────────────────────────────────
-export function MyBotsList({ T, bots, loading, authed, pinned, onOpen, onDelete, onPin }: {
-  T: Theme; bots: MyBot[]; loading: boolean; authed: boolean;
+export type AuthState = 'pending' | 'ok' | 'none';
+
+export function MyBotsList({ T, bots, loading, auth, onRetryAuth, notice, pinned, onOpen, onDelete, onPin }: {
+  T: Theme; bots: MyBot[]; loading: boolean;
+  auth: AuthState;               // pending → spinner; none inside Telegram → retry
+  onRetryAuth: () => void;
+  notice?: string | null;        // a failed delete, say — one line above the list
   pinned: Set<string>;
   onOpen: (id: string) => void;
   onDelete: (id: string) => void; onPin: (id: string) => void;
@@ -61,6 +80,7 @@ export function MyBotsList({ T, bots, loading, authed, pinned, onOpen, onDelete,
   const t = useT();
   const { lang } = useLang();
   const liveCount = bots.filter(b => b.live).length;
+  const pending = loading || auth === 'pending';
   return (
     <div style={{ padding: '26px 16px 24px', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '0 4px' }}>
@@ -74,17 +94,25 @@ export function MyBotsList({ T, bots, loading, authed, pinned, onOpen, onDelete,
         )}
       </div>
 
-      {loading && bots.length === 0 && (
+      {notice && (
+        <div style={{ fontFamily: T.font, fontSize: 13, color: T.amber, lineHeight: '18px', padding: '10px 4px 0' }}>{notice}</div>
+      )}
+
+      {pending && bots.length === 0 && (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
           <Spinner color={T.accent} size={20} />
         </div>
       )}
 
-      {!loading && bots.length === 0 && (
+      {!pending && bots.length === 0 && (
         <div style={{ fontFamily: T.font, fontSize: 14, color: T.sub, lineHeight: '20px', padding: '10px 4px 0' }}>
-          {authed
+          {auth === 'ok'
             ? t('No bots yet — describe your first one above.', 'Ботов пока нет — опишите первого выше.')
-            : t('Open this inside Telegram to see your bots.', 'Откройте в Telegram, чтобы увидеть своих ботов.')}
+            : insideTelegram
+              ? <button onClick={onRetryAuth} style={{ ...btnReset, fontFamily: T.font, fontSize: 14, fontWeight: 600, color: T.accent, textAlign: 'left' }}>
+                  {t("Couldn't sign you in — tap to retry", 'Не удалось войти — нажмите, чтобы повторить')}
+                </button>
+              : t('Open this inside Telegram to see your bots.', 'Откройте в Telegram, чтобы увидеть своих ботов.')}
         </div>
       )}
 
@@ -99,7 +127,8 @@ export function MyBotsList({ T, bots, loading, authed, pinned, onOpen, onDelete,
             ? { icon: 'pinOff', label: t('Unpin', 'Открепить'), bg: T.sub, fg: '#fff' }
             : { icon: 'pin', label: t('Pin', 'Закрепить'), bg: T.green, fg: '#fff' };
           const name = bot.name || t('New bot', 'Новый бот');
-          const tone = bot.live ? 'green' : bot.status === 'rejected' ? 'neutral' : 'gold';
+          const tone = bot.live ? 'green' : NEUTRAL.has(bot.status) ? 'neutral' : 'gold';
+          const pulse = !bot.live && PULSING.has(bot.status);
           return (
             <SwipeRow key={bot.id} T={T} left={pin} right={del}
               onTriggerLeft={() => onPin(bot.id)}
@@ -125,7 +154,7 @@ export function MyBotsList({ T, bots, loading, authed, pinned, onOpen, onDelete,
                   </div>
                 </div>
                 <Pill T={T} tone={tone} style={{ flexShrink: 0 }}>
-                  <Dot color={bot.live ? '#2f8f6f' : tone === 'gold' ? T.gold : T.hint} size={6} pulse={tone === 'gold'} />
+                  <Dot color={bot.live ? '#2f8f6f' : tone === 'gold' ? T.gold : T.hint} size={6} pulse={pulse} />
                   {bot.live ? t('Live', 'В эфире') : statusLabel(lang, bot.status)}
                 </Pill>
               </div>
@@ -160,7 +189,12 @@ export function Composer({ T, draft, onChange, onSend, disabled, placeholder, se
     fontFamily: T.font, fontSize: 15, lineHeight: '20px', outline: 'none', boxSizing: 'border-box',
   };
   return (
-    <div style={{ padding: '9px 10px 11px', background: T.headerBg, borderTop: `1px solid ${T.sep}`, position: 'relative', zIndex: 5 }}>
+    <div style={{
+      padding: '9px 10px 11px', background: T.headerBg, borderTop: `1px solid ${T.sep}`, position: 'relative', zIndex: 5,
+      // Telegram fullscreen exports the home-indicator inset as --tg-fs-bottom
+      // (telegram.ts); everywhere else the browser's own safe-area applies
+      paddingBottom: 'calc(11px + var(--tg-fs-bottom, env(safe-area-inset-bottom, 0px)))',
+    }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
         {secret ? (
           <input

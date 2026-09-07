@@ -5,13 +5,13 @@
 //   #/discover    Discover
 // Owner identity is a silent Telegram auth (initData → JWT); every screen
 // reads server state and polls it — nothing about a bot lives in localStorage.
-import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import { tgTheme, Theme } from './theme';
 import { syncChrome, telegramInitData, insideTelegram, backButtonOnClick, backButtonVisible } from './telegram';
 import { authTelegram, setAuthToken, listDiscoverBots } from './api/client';
 import { useT } from './i18n';
 import { TGHeader, TabBar, Spinner, Card, TGIcon } from './ui';
-import { useHashRoute, navigate, parentRoute, Route } from './router';
+import { useHashRoute, navigate, goBack, parentRoute, Route } from './router';
 import { HomeScreen } from './screens/Home';
 import { BotScreen } from './screens/Bot';
 import { DiscoveryPage, DiscoverBot, discoverBotFromProject } from './manage/Discovery';
@@ -25,7 +25,7 @@ type AuthState = 'pending' | 'ok' | 'none';
 
 export default function App() {
   const t = useT();
-  const T: Theme = tgTheme();
+  const T: Theme = useMemo(tgTheme, []); // one identity — the memoised chat rows compare it
   useEffect(() => { syncChrome(T.headerBg, T.pageBg); document.body.style.background = T.pageBg; }, []);
   const { route, dir } = useHashRoute();
 
@@ -34,16 +34,15 @@ export default function App() {
   // the session on every API call. Outside Telegram there is nothing to sign
   // with, so owner screens ask to open the app in Telegram.
   const [auth, setAuth] = useState<AuthState>(insideTelegram ? 'pending' : 'none');
-  const [agentId, setAgentId] = useState<string | null>(null);
   const tryAuth = useCallback(async (): Promise<boolean> => {
     const initData = telegramInitData();
     if (!initData) { setAuth('none'); return false; }
+    setAuth('pending');
     try {
       const r = await authTelegram(initData);
       const token = r.jwt || r.token;
       if (!token) { setAuth('none'); return false; }
       setAuthToken(token);
-      setAgentId(r.agent?.id ?? null);
       setAuth('ok');
       return true;
     } catch {
@@ -52,6 +51,13 @@ export default function App() {
     }
   }, []);
   useEffect(() => { void tryAuth(); }, [tryAuth]);
+
+  // Keys / Plan are lazy chunks — warm them after first paint so the tap
+  // later doesn't cost a round-trip and a spinner over the whole body
+  useEffect(() => {
+    const timer = setTimeout(() => { void import('./manage/BotEnv'); void import('./manage/Blueprint'); }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   // ── Discover feed (public) — loaded when the tab opens, kept for re-visits ──
   const [discoverBots, setDiscoverBots] = useState<DiscoverBot[] | null>(null);
@@ -66,7 +72,7 @@ export default function App() {
 
   // ── Back: Telegram's native BackButton inside the app, a header button in the browser ──
   const parent = parentRoute(route);
-  const back = parent ? () => navigate(parent) : null;
+  const back = parent ? () => goBack(parent) : null;
   const backRef = useRef(back);
   backRef.current = back;
   useEffect(() => backButtonOnClick(() => backRef.current?.()), []);
@@ -81,22 +87,31 @@ export default function App() {
   const ownerOnly = (node: React.ReactNode) => {
     if (auth === 'ok') return node;
     if (auth === 'pending') return <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spinner color={T.accent} size={22} /></div>;
+    // inside Telegram a failed sign-in is retryable — "open in Telegram" would
+    // be telling the owner to do what they already did
     return scroll(
       <div style={{ padding: 16 }}>
-        <Card T={T} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Card T={T} style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: insideTelegram ? 'pointer' : 'default' }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: T.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <TGIcon name="user" size={20} color={T.accent} stroke={1.9} />
+            <TGIcon name={insideTelegram ? 'refresh' : 'user'} size={20} color={T.accent} stroke={1.9} />
           </div>
-          <div>
-            <div style={{ fontFamily: T.font, fontSize: 15, fontWeight: 600, color: T.text }}>{t('Open in Telegram', 'Откройте в Telegram')}</div>
-            <div style={{ fontFamily: T.font, fontSize: 13, color: T.hint, marginTop: 2, lineHeight: '17px' }}>{t('Your bots are tied to your Telegram account — sign-in is automatic inside the mini-app.', 'Ваши боты привязаны к аккаунту Telegram — вход в мини-приложении автоматический.')}</div>
-          </div>
+          {insideTelegram ? (
+            <button onClick={() => void tryAuth()} style={{ border: 'none', background: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', font: 'inherit' }}>
+              <div style={{ fontFamily: T.font, fontSize: 15, fontWeight: 600, color: T.text }}>{t("Couldn't sign you in", 'Не удалось войти')}</div>
+              <div style={{ fontFamily: T.font, fontSize: 13, color: T.accent, marginTop: 2, lineHeight: '17px' }}>{t('Tap to retry', 'Нажмите, чтобы повторить')}</div>
+            </button>
+          ) : (
+            <div>
+              <div style={{ fontFamily: T.font, fontSize: 15, fontWeight: 600, color: T.text }}>{t('Open in Telegram', 'Откройте в Telegram')}</div>
+              <div style={{ fontFamily: T.font, fontSize: 13, color: T.hint, marginTop: 2, lineHeight: '17px' }}>{t('Your bots are tied to your Telegram account — sign-in is automatic inside the mini-app.', 'Ваши боты привязаны к аккаунту Telegram — вход в мини-приложении автоматический.')}</div>
+            </div>
+          )}
         </Card>
       </div>);
   };
   const body = (() => {
     switch (route.name) {
-      case 'home': return scroll(<HomeScreen T={T} authed={auth === 'ok'} agentId={agentId} tryAuth={tryAuth} />);
+      case 'home': return scroll(<HomeScreen T={T} auth={auth} tryAuth={tryAuth} />);
       case 'discover': return scroll(<DiscoveryPage T={T} bots={discoverBots || []} loading={discoverBots === null} />);
       case 'bot': return ownerOnly(<BotScreen key={route.id} T={T} projectId={route.id} />);
       case 'env': return ownerOnly(scroll(<BotEnv T={T} projectId={route.id} />));

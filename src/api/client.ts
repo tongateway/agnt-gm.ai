@@ -23,6 +23,21 @@ export class ApiError extends Error {
   }
 }
 
+// What the owner sees when a call fails. Server `error` strings are English
+// deployer/handler jargon ("bot lookup failed", "fly bot launch …"); the
+// status code is the part worth translating. Details go to the console.
+export function humanError(e: unknown, lang: 'en' | 'ru'): string {
+  const ru = lang === 'ru';
+  if (e instanceof ApiError) {
+    if (e.details) console.warn('[api]', e.status, e.message, e.details);
+    if (e.status === 401 || e.status === 403) return ru ? 'Откройте приложение заново' : 'Please reopen the app';
+    if (e.status === 404) return ru ? 'Этого бота больше нет' : 'This bot no longer exists';
+    if (e.status === 409) return ru ? 'Сейчас недоступно — попробуйте через минуту' : 'Not available right now — try again in a moment';
+    if (e.status === 429) return ru ? 'Слишком много запросов — подождите минуту' : 'Too many requests — wait a minute';
+  }
+  return ru ? 'Что-то пошло не так — попробуйте снова' : 'Something went wrong — try again';
+}
+
 // Session token (JWT) issued by POST /auth/telegram — attached to every call.
 let authToken: string | null = null;
 export function setAuthToken(token: string | null): void { authToken = token; }
@@ -81,14 +96,9 @@ export interface Project {
   bot_username?: string;   // the real managed-bot @username (t.me links on Discovery)
   bot_avatar_url?: string; // AI-generated bot avatar (public URL); absent until generated
   bot_is_live?: boolean;   // the managed bot's container is running (list + detail)
-  bot_container_state?: string;
   discoverable?: boolean;  // listed on the Discover page; absent/true = shown, false = opted out
   logo_url?: string;
   preview_image_url?: string;
-  build_mode?: string;
-  active_agents?: number;
-  prs_merged_7d?: number;
-  open_tasks?: number;
   created_at?: string;
   published_at?: string;   // stamped when the build converged (phase → published)
   current_phase?: string;  // 'building' | 'tests' | 'published' | 'failed'
@@ -103,31 +113,26 @@ export interface Project {
   build_progress?: BuildProgress;
 }
 
-// The build snapshot the Bot page renders: a server-owned, localized stage
-// label + an APPROXIMATE percent/ETA. Never re-derive the label client-side.
+// The build snapshot the Bot page renders. `stage` is the stable enum the
+// status line is keyed on (translated client-side — the server's stage_label
+// is English-only and names pass numbers, so it is only a dev fallback).
 export interface BuildProgress {
   phase: string;          // building | tests | published | failed
   stage: string;          // blueprint|building|reviewing|testing|deploying|live|live_with_gaps|awaiting_bot|awaiting_agent|failed
-  stage_label: string;    // human one-liner, e.g. "🔨 Building your bot"
+  stage_label: string;    // server one-liner (English) — fallback only
   percent: number;        // 0..100, APPROXIMATE
-  eta_seconds: number;    // APPROXIMATE remaining; 0 when live/failed
-  pass_current: number;
-  merged_passes: number;
-  pass_floor: number;
-  passes?: BuildProgressPass[] | null; // null/absent before the first pass — always guard
-}
-
-export interface BuildProgressPass {
-  pass_no: number;
-  status: string;
-  pr_number?: number;
-  complete?: boolean;
-  label: string;
 }
 
 export interface ProjectDetail {
   project: Project;
-  readme_md?: string;
+}
+
+// "answering users" for a LIST row: the server's bot_is_live (container
+// running) and nothing else — current_phase 'published' without a bot is
+// awaiting_bot, and bot_go_live_at is a one-time stamp that outlives a
+// container that later stopped. The Bot page uses botIsLive(ProjectBot).
+export function projectIsLive(p: Project): boolean {
+  return p.bot_is_live === true;
 }
 
 export interface ProjectList {
@@ -248,8 +253,12 @@ export function deleteProject(idOrSlug: string): Promise<unknown> {
   return request('DELETE', `/builder/projects/${encodeURIComponent(idOrSlug)}`);
 }
 
-export function listProjectsByAgent(agentId: string, limit = 50): Promise<ProjectList> {
-  return request('GET', `/builder/projects?owner_agent_id=${encodeURIComponent(agentId)}&limit=${limit}`);
+// The owner's bots, from the JWT. GET /builder/projects?owner_agent_id=… is
+// served from a 30 s cache that neither archive nor a new draft invalidates
+// (a deleted bot came back, a fresh draft was missing on Back); this endpoint
+// is uncached and hides archived rows itself.
+export function listMyProjects(limit = 50): Promise<ProjectList> {
+  return request('GET', `/builder/agents/me/projects?limit=${limit}`);
 }
 
 // ── Discovery: public feed of live, discoverable bots (everyone's) ──
@@ -298,6 +307,12 @@ export function deployFailed(d?: Deployment | null): boolean {
 // already running); 503 if the deploy worker is unconfigured. Narrated into chat.
 export function retryDeploy(idOrSlug: string): Promise<{ ok?: boolean; status?: string; project_id?: string }> {
   return request('POST', `/builder/projects/${encodeURIComponent(idOrSlug)}/deploy`);
+}
+
+// "Rebuild" — re-enters the build after it gave up (current_phase 'failed').
+// 202 {ok, status:'rebuilding'}; 409 when the project isn't in that state.
+export function rebuildBot(idOrSlug: string): Promise<{ ok?: boolean; status?: string }> {
+  return request('POST', `/builder/projects/${encodeURIComponent(idOrSlug)}/rebuild`);
 }
 
 // ── Bot analytics (end-user usage of the DEPLOYED bot) ────────
